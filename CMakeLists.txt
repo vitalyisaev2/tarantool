@@ -314,6 +314,14 @@ libcjson_build()
 add_dependencies(build_bundled_libs cjson)
 
 #
+# LibSQLite
+#
+
+include(BuildLibSqlite)
+sqlite_build()
+add_dependencies(build_bundled_libs sqlite)
+
+#
 # LibYAML
 #
 

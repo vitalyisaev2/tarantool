@@ -1,3 +1,5 @@
+-- sqlite.lua
+
 local sqlite = sqlite
 
 local function execute(self, sql)
