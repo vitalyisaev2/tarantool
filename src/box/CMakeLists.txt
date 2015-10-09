@@ -1,7 +1,7 @@
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/src/box/lua)
 
 include_directories(${SOPHIA_INCLUDE_DIR})
-include_directories(${CMAKE_BINARY_DIR}/third_party/sqlite)
+include_directories(${CMAKE_BINARY_DIR}/third_party/sqlite/build/tsrc/)
 
 set(lua_sources)
 lua_source(lua_sources lua/load_cfg.lua)
