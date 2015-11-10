@@ -124,10 +124,10 @@ sophia_tuple_new(void *obj, struct key_def *key_def,
 static uint64_t num_parts[8];
 
 void*
-SophiaIndex::createObject(const char *key, bool async, const char **keyend)
+SophiaIndex::createDocument(const char *key, bool async, const char **keyend)
 {
 	assert(key_def->part_count <= 8);
-	void *obj = sp_object(db);
+	void *obj = sp_document(db);
 	if (obj == NULL)
 		sophia_error(env);
 	if (async)
@@ -213,6 +213,9 @@ sophia_configure(struct space *space, struct key_def *key_def)
 	/* db.compression */
 	snprintf(path, sizeof(path), "db.%" PRIu32 ".compression", key_def->space_id);
 	sp_setstring(env, path, cfg_gets("sophia.compression"), 0);
+	/* db.compression_branch */
+	snprintf(path, sizeof(path), "db.%" PRIu32 ".compression_branch", key_def->space_id);
+	sp_setstring(env, path, cfg_gets("sophia.compression"), 0);
 	/* db.compression_key */
 	snprintf(path, sizeof(path), "db.%" PRIu32 ".compression_key", key_def->space_id);
 	sp_setint(env, path, cfg_geti("sophia.compression_key"));
@@ -283,7 +286,7 @@ struct tuple *
 SophiaIndex::findByKey(const char *key, uint32_t part_count = 0) const
 {
 	(void)part_count;
-	void *obj = ((SophiaIndex *)this)->createObject(key, true, NULL);
+	void *obj = ((SophiaIndex *)this)->createDocument(key, true, NULL);
 	void *transaction = db;
 	/* engine_tx might be empty, even if we are in txn context.
 	 *
@@ -588,7 +591,7 @@ SophiaIndex::upsert(const char *key,
 	p += tuple_size;
 	memcpy(p, expr, expr_size);
 	void *transaction = in_txn()->engine_tx;
-	void *obj = createObject(key, false, NULL);
+	void *obj = createDocument(key, false, NULL);
 	sp_setstring(obj, "value", value, valuesize);
 	int rc = sp_update(transaction, obj);
 	free(value);
@@ -618,7 +621,7 @@ SophiaIndex::replace_or_insert(const char *tuple,
 	void *transaction = in_txn()->engine_tx;
 	const char *value;
 	size_t valuesize;
-	void *obj = createObject(key, false, &value);
+	void *obj = createDocument(key, false, &value);
 	valuesize = size - (value - tuple);
 	if (valuesize > 0)
 		sp_setstring(obj, "value", value, valuesize);
@@ -631,7 +634,7 @@ SophiaIndex::replace_or_insert(const char *tuple,
 void
 SophiaIndex::remove(const char *key)
 {
-	void *obj = createObject(key, false, NULL);
+	void *obj = createDocument(key, false, NULL);
 	void *transaction = in_txn()->engine_tx;
 	int rc = sp_delete(transaction, obj);
 	if (rc == -1)
@@ -796,7 +799,7 @@ SophiaIndex::initIterator(struct iterator *ptr,
 	it->cursor = sp_cursor(env);
 	if (it->cursor == NULL)
 		sophia_error(env);
-	void *obj = ((SophiaIndex *)this)->createObject(key, true, &it->keyend);
+	void *obj = ((SophiaIndex *)this)->createDocument(key, true, &it->keyend);
 	sp_setstring(obj, "order", compare, 0);
 	/* Position first key here, since key pointer might be
 	 * unavailable from lua.
