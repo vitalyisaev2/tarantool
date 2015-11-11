@@ -414,6 +414,11 @@ SophiaEngine::join(struct relay *relay)
 			key_def_delete(key_def);
 			sophia_error(env);
 		}
+		/* tell cursor not to hold a transaction, which
+		 * in result enables compaction process
+		 * for a duplicates */
+		sp_setint(cursor, "read_commited", 1);
+
 		void *obj = sp_document(db);
 		while ((obj = sp_get(cursor, obj)))
 		{
