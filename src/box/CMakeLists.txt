@@ -73,6 +73,8 @@ add_library(box
     lua/session.cc
     lua/net_box.cc
     lua/sql.cc
+    lua/sql_mvalue.cc
+    lua/sql_tarantool_cursor.cc
     ${bin_sources})
 
 target_link_libraries(box ${sophia_lib} -lsqlite3)

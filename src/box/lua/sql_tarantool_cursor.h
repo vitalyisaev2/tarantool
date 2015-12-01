@@ -1,5 +1,5 @@
-#ifndef INCLUDES_TARANTOOL_LUA_SQLITE_H
-#define INCLUDES_TARANTOOL_LUA_SQLITE_H
+#ifndef INCLUDES_SQL_TARANTOOL_CURSOR_H
+#define INCLUDES_SQL_TARANTOOL_CURSOR_H
 /*
  * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
  *
@@ -32,11 +32,48 @@
  */
 
 extern "C" {
-#include <stdint.h>
-#include <inttypes.h>
-
-void box_lua_sqlite_init(struct lua_State *L);
-
+#include "sqlite3.h"
+#include "sqliteInt.h"
 }
+
+#undef likely
+#undef unlikely
+
+#include "say.h"
+#include "box/index.h"
+#include "box/schema.h"
+#include "box/txn.h"
+#include "box/tuple.h"
+#include "sql_mvalue.h"
+
+class TarantoolCursor {
+private:
+	uint32_t space_id;
+	uint32_t index_id;
+	int type;
+	const char *key;
+	const char *key_end;
+	box_iterator_t *it;
+	box_tuple_t *tpl;
+
+	sqlite3 *db;
+
+	void *data;
+	uint32_t size;
+
+	bool make_btree_cell_from_tuple();
+
+public:
+	TarantoolCursor();
+	TarantoolCursor(sqlite3 *db_, uint32_t space_id_, uint32_t index_id_, int type_,
+               const char *key_, const char *key_end_);
+	TarantoolCursor(const TarantoolCursor &ob);
+	TarantoolCursor &operator=(const TarantoolCursor &ob);
+	int MoveToFirst(int *pRes);
+	int DataSize(u32 *pSize) const;
+	const void *DataFetch(u32 *pAmt) const;
+	int Next(int *pRes);
+	~TarantoolCursor();
+};
 
 #endif
