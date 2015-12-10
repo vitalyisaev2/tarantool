@@ -356,29 +356,6 @@ box_set_listen(void)
 	iproto_set_listen(uri);
 }
 
-/**
- * Check if (host, port) in box.cfg.listen is equal to (host, port) in uri.
- * Used to determine that an uri from box.cfg.replication_source is
- * actually points to the same address as box.cfg.listen.
- */
-static bool
-box_cfg_listen_eq(struct uri *what)
-{
-	const char *listen = cfg_gets("listen");
-	if (listen == NULL)
-		return false;
-
-	struct uri uri;
-	int rc = uri_parse(&uri, listen);
-	assert(rc == 0 && uri.service);
-	(void) rc;
-
-	return (uri.service_len == what->service_len &&
-		uri.host_len == what->host_len &&
-		memcmp(uri.service, what->service, uri.service_len) == 0 &&
-		memcmp(uri.host, what->host, uri.host_len) == 0);
-}
-
 extern "C" void
 box_set_wal_mode(void)
 {
@@ -653,6 +630,14 @@ box_upsert(uint32_t space_id, uint32_t index_id, const char *tuple,
 	return box_process1(&request, result);
 }
 
+static inline void
+box_register_server(uint32_t id, const struct tt_uuid *uuid)
+{
+	boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "%u%s",
+	     (unsigned) id, tt_uuid_str(uuid));
+	assert(vclock_has(&recovery->vclock, id));
+}
+
 /**
  * @brief Called when recovery/replication wants to add a new server
  * to cluster.
@@ -676,8 +661,7 @@ box_on_cluster_join(const tt_uuid *server_uuid)
 			break;
 		server_id++;
 	}
-	boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "%u%s",
-	     (unsigned) server_id, tt_uuid_str(server_uuid));
+	box_register_server(server_id, server_uuid);
 }
 
 static inline struct func *
@@ -847,6 +831,10 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	struct tt_uuid server_uuid = uuid_nil;
 	xrow_decode_join(header, &server_uuid);
 
+	/* Check that bootstrap was done */
+	if (recovery->writer == NULL)
+		tnt_raise(ClientError, ER_LOADING);
+
 	struct vclock join_vclock;
 	vclock_create(&join_vclock);
 
@@ -906,6 +894,10 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 			  tt_uuid_str(&server_uuid));
 	}
 
+	/* Check that bootstrap was done */
+	if (recovery->writer == NULL)
+		tnt_raise(ClientError, ER_LOADING);
+
 	/* Don't allow multiple relays for the same server */
 	if (server->relay != NULL) {
 		tnt_error(ClientError, ER_CFG, "replication_source",
@@ -941,30 +933,6 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	 * indefinitely).
 	 */
 	relay_subscribe(io->fd, header->sync, server, &server_vclock);
-}
-
-/** Replace the current server id in _cluster */
-static void
-box_set_server_uuid()
-{
-	struct recovery *r = recovery;
-
-	assert(r->server_id == 0);
-
-	/* Unregister local server if it was registered by bootstrap.bin */
-	if (vclock_has(&r->vclock, 1))
-		boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "%u", 1);
-	assert(!vclock_has(&r->vclock, 1));
-
-	/* Register local server */
-	tt_uuid_create(&r->server_uuid);
-	boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "%u%s",
-	     1, tt_uuid_str(&r->server_uuid));
-	assert(vclock_has(&r->vclock, 1));
-
-	/* Remove surrogate server */
-	vclock_del_server(&r->vclock, 0);
-	assert(r->server_id == 1);
 }
 
 /** Insert a new cluster into _schema */
@@ -1048,29 +1016,47 @@ thread_pool_trim()
 static void
 bootstrap_cluster(void)
 {
+	say_info("bootstrapping cluster");
+
 	/* Add a surrogate server id for snapshot rows */
-	vclock_add_server(&recovery->vclock, 0);
+	vclock_add_server(&recovery->vclock, SERVER_ID_NIL);
 
 	/* Process bootstrap.bin */
 	recovery_bootstrap(recovery);
 
-	/* Generate UUID of a new cluster */
-	box_set_cluster_uuid();
+	uint32_t server_id = 1;
 
-	/* Generate Server-UUID */
-	box_set_server_uuid();
+	/* Unregister local server if it was registered by bootstrap.bin */
+	if (vclock_has(&recovery->vclock, server_id))
+		boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "%u", server_id);
+
+	/* Register local server */
+	box_register_server(server_id, &recovery->server_uuid);
+
+	/* Remove surrogate server used by bootstrap */
+	vclock_del_server(&recovery->vclock, SERVER_ID_NIL);
+	assert(recovery->server_id != SERVER_ID_NIL);
+
+	/* Register other cluster members */
+	server_foreach(server) {
+		if (tt_uuid_is_equal(&server->uuid, &recovery->server_uuid))
+			continue;
+		assert(server->applier != NULL);
+		box_register_server(++server_id, &server->uuid);
+		assert(server->id == server_id);
+	}
+
+	/* Set UUID of the cluster */
+	box_set_cluster_uuid();
 }
 
-/**
- * Bootstrap from the remote master
- */
 static void
 bootstrap_from_master(struct server *master)
 {
 	assert(master->applier != NULL);
-
-	/* Generate Server-UUID */
-	tt_uuid_create(&recovery->server_uuid);
+	say_info("downloading a snapshot from %s",
+		 sio_strfaddr(&master->applier->addr,
+			      master->applier->addr_len));
 
 	/* Initialize a new replica */
 	engine_begin_join();
@@ -1092,12 +1078,14 @@ bootstrap(void)
 	struct server *master = server_first();
 	assert(master == NULL || master->applier != NULL);
 
-	if (master != NULL && !box_cfg_listen_eq(&master->applier->uri)) {
+	if (master != NULL && !tt_uuid_is_equal(&master->uuid,
+					        &recovery->server_uuid)) {
 		bootstrap_from_master(master);
 	} else {
 		bootstrap_cluster();
 	}
 
+	/* Save a snapshot */
 	int64_t checkpoint_id = vclock_sum(&recovery->vclock);
 	engine_checkpoint(checkpoint_id);
 }
@@ -1127,7 +1115,6 @@ box_init(void)
 	session_init();
 
 	cluster_init();
-
 	title("loading");
 
 	/* recovery initialization */
@@ -1140,30 +1127,32 @@ box_init(void)
 			     cfg_geti("panic_on_snap_error"),
 			     cfg_geti("panic_on_wal_error"));
 
-	/*
-	 * Initialize the cluster registry using replication_source,
-	 * but don't start replication right now.
-	 */
-	box_sync_replication_source();
-
-	if (recovery_has_data(recovery)) {
+	bool has_data = recovery_has_data(recovery);
+	if (has_data) {
 		/* Tell Sophia engine LSN it must recover to. */
 		int64_t checkpoint_id =
 			recovery_last_checkpoint(recovery);
 		engine_recover_to_checkpoint(checkpoint_id);
+
+		title("orphan");
+		recovery_follow_local(recovery, "hot_standby",
+				      cfg_getd("wal_dir_rescan_delay"));
+		title("hot_standby");
 	} else 	{
-		 bootstrap();
+		/* Generate UUID of the server (needed for IPROTO) */
+		tt_uuid_create(&recovery->server_uuid);
 	}
-	fiber_gc();
 
-	title("orphan");
-	recovery_follow_local(recovery, "hot_standby",
-			      cfg_getd("wal_dir_rescan_delay"));
-	title("hot_standby");
-
+	/*
+	 * Connect to all servers but don't start replication right now
+	 */
 	port_init();
 	iproto_init();
 	box_set_listen();
+	box_sync_replication_source();
+
+	if (!has_data)
+		bootstrap();
 
 	int rows_per_wal = box_check_rows_per_wal(cfg_geti("rows_per_wal"));
 	enum wal_mode wal_mode = box_check_wal_mode(cfg_gets("wal_mode"));

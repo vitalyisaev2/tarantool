@@ -312,12 +312,15 @@ void
 recovery_bootstrap(struct recovery *r)
 {
 	/* Recover from bootstrap.snap */
-	say_info("initializing an empty data directory");
+	struct tt_uuid orig_uuid = r->server_uuid;
+	/* Use nil uuid to ignore 'bootstrap.snap: invalid server UUID' */
+	r->server_uuid = uuid_nil;
 	const char *filename = "bootstrap.snap";
 	FILE *f = fmemopen((void *) &bootstrap_bin,
 			   sizeof(bootstrap_bin), "r");
 	struct xlog *snap = xlog_open_stream(&r->snap_dir, 0, f, filename);
 	auto guard = make_scoped_guard([=]{
+		r->server_uuid = orig_uuid; /* restore original uuid */
 		xlog_close(snap);
 	});
 	/** The snapshot must have a EOF marker. */

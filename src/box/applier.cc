@@ -154,9 +154,6 @@ applier_connect(struct applier *applier)
 static void
 applier_join(struct applier *applier, struct recovery *r)
 {
-	say_info("downloading a snapshot from %s",
-		 sio_strfaddr(&applier->addr, applier->addr_len));
-
 	/* Send JOIN request */
 	struct ev_io *coio = &applier->io;
 	struct iobuf *iobuf = applier->iobuf;
@@ -339,10 +336,18 @@ applier_f(va_list ap)
 			assert(0);
 			return;
 		} catch (ClientError *e) {
-			/* log logical error which caused replica to stop */
 			e->log();
-			applier_disconnect(applier, e, APPLIER_STOPPED);
-			throw;
+			/*
+			 * Ignore ER_LOADING and ER_ACCESS_DENIEND during
+			 * bootstrap
+			 */
+			if (r->writer != NULL && e->errcode() != ER_LOADING &&
+			    e->errcode() != ER_ACCESS_DENIED) {
+				applier_disconnect(applier, e, APPLIER_STOPPED);
+				throw;
+			}
+			applier_disconnect(applier, e, APPLIER_DISCONNECTED);
+			/* fall through */
 		} catch (FiberIsCancelled *e) {
 			applier_disconnect(applier, e, APPLIER_OFF);
 			throw;
@@ -473,7 +478,9 @@ static void
 applier_on_bootstrap(struct trigger *trigger, void *event)
 {
 	struct applier *applier = (struct applier *) event;
-	if (applier->state == APPLIER_BOOTSTRAP)
+	if (applier->state != APPLIER_CONNECTED &&
+	    applier->state != APPLIER_STOPPED &&
+	    applier->state != APPLIER_OFF)
 		return;
 
 	/* Wake up applier_bootstrap() fiber */
