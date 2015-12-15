@@ -88,6 +88,9 @@ struct cmsg {
 	struct cmsg_hop *hop;
 };
 
+static inline struct cmsg *cmsg(void *ptr) { return (struct cmsg *) ptr; }
+
+/** Initialize the message and set its route. */
 static inline void
 cmsg_init(struct cmsg *msg, struct cmsg_hop *route)
 {
@@ -456,6 +459,23 @@ struct cmsg_notify
 
 void
 cmsg_notify_init(struct cmsg_notify *msg);
+
+/**
+ * A helper method to invoke a function on the other side of the
+ * bus.
+ *
+ * Creates the relevant messages, pushes them to the stack and
+ * blocks the caller until f is executed in the correspondent bus.
+ * Detects which cord to invoke a function in based on the current
+ * cord value (i.e. finds the respective pipes automatically).
+ *
+ * @return This function itself never fails. It returns the return
+ * value of the argument. If the argument function set an error in
+ * the called cord, this error is safely transferred to the caller
+ * cord's diagnostics area.
+*/
+int
+cbus_invoke(struct cbus *bus, fiber_func f, ...);
 
 #if defined(__cplusplus)
 } /* extern "C" */
