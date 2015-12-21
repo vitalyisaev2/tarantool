@@ -54,6 +54,9 @@
 #include <dirent.h>
 #include <errno.h>
 
+/* sophia environment reference for a module access */
+void *sophia_env = NULL;
+
 void sophia_error(void *env)
 {
 	char *error = (char *)sp_getstring(env, "sophia.error", NULL);
@@ -236,6 +239,7 @@ SophiaEngine::~SophiaEngine()
 {
 	if (env)
 		sp_destroy(env);
+	sophia_env = NULL;
 }
 
 static inline int
@@ -310,6 +314,7 @@ SophiaEngine::init()
 	int rc = sp_open(env);
 	if (rc == -1)
 		sophia_error(env);
+	sophia_env = env;
 }
 
 void
