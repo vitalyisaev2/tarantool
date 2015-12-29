@@ -570,7 +570,7 @@ Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema
 		}
 		table->pSchema = pSchema;
 		table->iPKey = -1;
-		table->tabFlags = TF_WithoutRowid | TF_HasPrimaryKey;
+		//table->tabFlags = TF_WithoutRowid | TF_HasPrimaryKey;
 
 		const char *data = box_tuple_field(tpl, 0);
 		int type = (int)mp_typeof(*data);
@@ -837,11 +837,13 @@ Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema
 
 			// Uncomment this, if you are sure, that indices is working.
 			//
-			// sqlite3HashInsert(&idxHash, index->zName, index);
-			// if (table->pIndex) {
-			// 	index->pNext = table->pIndex;
+			// if (index_id.GetUint64() == 0) {
+			// 	sqlite3HashInsert(&idxHash, index->zName, index);
+			// 	if (table->pIndex) {
+			// 		index->pNext = table->pIndex;
+			// 	}
+			// 	table->pIndex = index;
 			// }
-			// table->pIndex = index;
 
 			index->aiRowLogEst = reinterpret_cast<LogEst *>(sqlite3DbMallocZero(db, sizeof(LogEst) * index->nKeyCol));
 			for (int i = 0; i < index->nKeyCol; ++i) index->aiRowLogEst[i] = table->nRowLogEst;
