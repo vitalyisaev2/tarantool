@@ -66,6 +66,8 @@ struct TrntlCursor {
 typedef struct sql_trntl_self {
 	TrntlCursor **cursors;
 	int cnt_cursors;
+	SIndex **indices;
+	int cnt_indices;
 } sql_trntl_self;
 
 /** Struct for containing data, received from sqlite database. */
@@ -83,7 +85,7 @@ struct sql_result {
 extern "C" {
 void sql_tarantool_api_init(sql_tarantool_api *ob);
 
-Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema);
+Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema, Hash *idxHash_);
 
 int trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
                               struct KeyInfo *pKeyInfo, BtCursor *pCur);
@@ -94,9 +96,38 @@ int trntl_cursor_data_size(void *self_, BtCursor *pCur, u32 *pSize);
 
 const void *trntl_cursor_data_fetch(void *self_, BtCursor *pCur, u32 *pAmt);
 
+int trntl_cursor_key_size(void *self, BtCursor *pCur, i64 *pSize);
+ 
+const void *trntl_cursor_key_fetch(void *self, BtCursor *pCur, u32 *pAmt);
+
 int trntl_cursor_next(void *self, BtCursor *pCur, int *pRes);
 
 int trntl_cursor_close(void *self, BtCursor *pCur);
+
+char check_num_on_tarantool_id(void *self, u32 num);
+
+int trntl_cursor_move_to_unpacked(void *self, BtCursor *pCur, UnpackedRecord *pIdxKey, i64 intKey, int biasRight, int *pRes, RecordCompare xRecordCompare);
+}
+
+u32 make_index_id(u32 space_id, u32 index_number) {
+	u32 res = 0;
+	u32 first = 1 << 30;
+	u32 second = (index_number << 28) >> 2;
+	u32 third = (space_id << 15) >> 6;
+	res = first | second | third;
+	return res;
+}
+
+u32 make_space_id(u32 space_id) {
+	return make_index_id(space_id, 15);
+}
+
+u32 get_space_id_from(u32 num) {
+	return (num << 6) >> 15;
+}
+
+u32 get_index_id_from(u32 num) {
+	return (num << 2) >> 28;
 }
 
 /** 
@@ -330,17 +361,35 @@ int trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
 			return SQLITE_ERROR;
 		}
 	}
+	u32 num;
+	memcpy(&num, &iTable, sizeof(u32));
 	TrntlCursor *c = new TrntlCursor();
 	c->key = new char[2];
 	char *key_end = mp_encode_array(c->key, 0);
 	int index_id = 0;
 	int type = ITER_ALL;
-	c->cursor = TarantoolCursor(p->db, iTable, index_id, type, c->key, key_end);
+	int space_id = get_space_id_from(num);
+	index_id = get_index_id_from(num) % 15;
+	u32 tnum = make_index_id(space_id, index_id);
+	SIndex *sql_index = NULL;
+	for (int i = 0; i < self->cnt_indices; ++i) {
+		if (self->indices[i]->tnum == tnum) {
+			sql_index = self->indices[i];
+			break;
+		}
+	}
+	if (sql_index == NULL) {
+		say_debug("%s(): sql_index not found, space_id = %d, index_id = %d\n", __func_name, space_id, index_id);
+		delete[] c;
+		delete[] c->key;
+		return SQLITE_ERROR;
+	}
+	c->cursor = TarantoolCursor(p->db, space_id, index_id, type, c->key, key_end, sql_index);
 	c->brother = pCur;
 	pCur->trntl_cursor = (void *)c;
 	pCur->pBtree = p;
 	pCur->pBt = p->pBt;
-	pCur->pgnoRoot = (Pgno)iTable;
+	memcpy(&pCur->pgnoRoot, &iTable, sizeof(Pgno));
 	pCur->iPage = -1;
 	pCur->curFlags = wrFlag;
 	pCur->pKeyInfo = pKeyInfo;
@@ -385,6 +434,21 @@ int trntl_cursor_close(void *self_, BtCursor *pCur) {
 	return SQLITE_OK;
 }
 
+int trntl_cursor_move_to_unpacked(void *self_, BtCursor *pCur, UnpackedRecord *pIdxKey, i64 intKey, int biasRight, int *pRes, RecordCompare xRecordCompare) {
+	static const char *__func_name = "trntl_cursor_move_to_unpacked";
+	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
+	if (!self) {
+		say_debug("%s(): self must not be NULL\n", __func_name);
+		return SQLITE_ERROR;
+	}
+	if ((biasRight != 0) && (biasRight != 1)) {
+		say_debug("%s(): biasRight must be 1 or 0, but equal %d\n", __func_name, biasRight);
+		return SQLITE_ERROR;
+	}
+	TrntlCursor *c = (TrntlCursor *)pCur->trntl_cursor;
+	return c->cursor.MoveToUnpacked(pIdxKey, intKey, pRes, xRecordCompare);
+}
+
 int trntl_cursor_first(void *self_, BtCursor *pCur, int *pRes) {
 	static const char *__func_name = "trntl_cursor_first";
 	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
@@ -418,6 +482,28 @@ const void *trntl_cursor_data_fetch(void *self_, BtCursor *pCur, u32 *pAmt) {
 	return c->cursor.DataFetch(pAmt);
 }
 
+int trntl_cursor_key_size(void *self_, BtCursor *pCur, i64 *pSize) {
+	static const char *__func_name = "trntl_cursor_key_size";
+	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
+	if (!self) {
+		say_debug("%s(): self must not be NULL\n", __func_name);
+		return SQLITE_ERROR;
+	}
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.KeySize(pSize);
+}
+ 
+const void *trntl_cursor_key_fetch(void *self_, BtCursor *pCur, u32 *pAmt) {
+	static const char *__func_name = "trntl_cursor_key_fetch";
+	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
+	if (!self) {
+		say_debug("%s(): self must not be NULL\n", __func_name);
+		return NULL;
+	}
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.KeyFetch(pAmt);
+}
+
 int trntl_cursor_next(void *self_, BtCursor *pCur, int *pRes) {
 	static const char *__func_name = "trntl_cursor_next";
 	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
@@ -429,7 +515,19 @@ int trntl_cursor_next(void *self_, BtCursor *pCur, int *pRes) {
 	return c->cursor.Next(pRes);
 }
 
-Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema) {
+char check_num_on_tarantool_id(void *self, u32 num) {
+	static const char *__func_name = "check_num_on_tarantool_id";
+	if (self == NULL) {
+		say_debug("%s(): self must not be NULL\n", __func_name);
+		return 0;
+	}
+	u32 buf;
+	buf = (num << 23) >> 23;
+	if (buf) return 0;
+	return !!(num & (1 << 30));
+}
+
+Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema, Hash *idxHash_) {
 	static const char *__func_name = "get_trntl_spaces";
 
 	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
@@ -439,11 +537,14 @@ Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema
 	}
 
 	Hash tblHash;
-	memset(&tblHash, 0, sizeof(tblHash));
+	Hash idxHash;
+	memset(&tblHash, 0, sizeof(Hash));
+	memset(&idxHash, 0, sizeof(Hash));
 
 	char key[2], *key_end = mp_encode_array(key, 0);
 	box_iterator_t *it = box_index_iterator(BOX_SPACE_ID, 0, ITER_ALL, key, key_end);
 	box_tuple_t *tpl = NULL;
+	SIndex **new_indices = NULL;
 	box_txn_begin();
 
 
@@ -469,6 +570,7 @@ Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema
 		}
 		table->pSchema = pSchema;
 		table->iPKey = -1;
+		table->tabFlags = TF_WithoutRowid | TF_HasPrimaryKey;
 
 		const char *data = box_tuple_field(tpl, 0);
 		int type = (int)mp_typeof(*data);
@@ -478,7 +580,7 @@ Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema
 			sqlite3DbFree(db, table);
 			goto __get_trntl_spaces_end_bad;
 		}
-		table->tnum = -tbl_id.GetUint64();
+		table->tnum = make_space_id(tbl_id.GetUint64());
 
 		data = box_tuple_field(tpl, 2);
 		type = (int)mp_typeof(*data);
@@ -578,11 +680,202 @@ Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema
 		table->aCol = cols;
 		table->nCol = nCol;
 		table->nRef = 1;
+		table->nRowLogEst = box_index_len(tbl_id.GetUint64(), 0);
+		table->szTabRow = ESTIMATED_ROW_SIZE;
+
+		//----Indices----
+
+		box_iterator_t *index_it = box_index_iterator(BOX_INDEX_ID, 0, ITER_ALL, key, key_end);
+		box_tuple_t *index_tpl = NULL;
+		while(1) {
+			uint32_t map_size;
+			MValue key, value, idx_cols, index_id, space_id;
+			SIndex *index = NULL;
+			int cnt;
+
+			if (box_iterator_next(index_it, &index_tpl)) {
+				say_debug("%s(): box_iterator_next return not 0 for next index\n", __func_name);
+				goto __get_trntl_spaces_index_bad;
+			}
+			if (!index_tpl) {
+				break;
+			}
+			cnt = box_tuple_field_count(index_tpl);
+			if (cnt != 6) {
+				say_debug("%s(): box_tuple_field_count not equal 6, but %d, for next index\n", __func_name, cnt);
+				goto __get_trntl_spaces_index_bad;
+			}
+			//---- SPACE ID ----
+
+			data = box_tuple_field(index_tpl, 0);
+			type = (int)mp_typeof(*data);
+			space_id = MValue::FromMSGPuck(&data);
+			if (space_id.GetType() != MP_UINT) {
+				say_debug("%s(): field[0] in tuple in INDEX must be uint, but is %d\n", __func_name, type);
+				goto __get_trntl_spaces_index_bad;
+			}
+			if (space_id.GetUint64() != tbl_id.GetUint64()) continue;
+
+			index = NULL;
+			index = reinterpret_cast<SIndex *>(sqlite3DbMallocZero(db, sizeof(SIndex)));
+			if (db->mallocFailed) {
+				say_debug("%s(): error while allocating memory for index\n", __func_name);
+				goto __get_trntl_spaces_index_bad;
+			}
+			index->pTable = table;
+			index->pSchema = pSchema;
+			index->isCovering = 1;
+			index->noSkipScan = 1;
+
+			//---- INDEX ID ----
+
+			data = box_tuple_field(index_tpl, 1);
+			type = (int)mp_typeof(*data);
+			index_id = MValue::FromMSGPuck(&data);
+			if (index_id.GetType() != MP_UINT) {
+				say_debug("%s(): field[1] in tuple in INDEX must be uint, but is %d\n", __func_name, type);
+				goto __get_trntl_spaces_index_bad;
+			}
+			if (index_id.GetUint64()) {
+				index->idxType = 2;
+			}
+			index->tnum = make_index_id(space_id.GetUint64(), index_id.GetUint64());
+
+			//---- INDEX NAME ----
+
+			data = box_tuple_field(index_tpl, 2);
+			type = (int)mp_typeof(*data);
+			if (type != MP_STR) {
+				say_debug("%s(): field[2] in tuple in INDEX must be string, but is %d\n", __func_name, type);
+				goto __get_trntl_spaces_index_bad;
+			} else {
+				char zName[256];
+				memset(zName, 0, 256);
+				size_t len = 0;
+				MValue buf = MValue::FromMSGPuck(&data);
+				buf.GetStr(&len);
+				sprintf(zName, "%d_%d_", (int)space_id.GetUint64(), (int)index_id.GetUint64());
+				memcpy(zName + strlen(zName), buf.GetStr(), len);
+				index->zName = sqlite3DbStrDup(db, zName);
+				if (db->mallocFailed) {
+					say_debug("%s(): error while allocating memory for index name, = %s\n", __func_name, buf.GetStr());
+					goto __get_trntl_spaces_index_bad;
+				}
+			}
+
+			//---- SORT ORDER ----
+
+			index->aSortOrder = reinterpret_cast<u8 *>(sqlite3DbMallocZero(db, sizeof(u8)));
+			index->aSortOrder[0] = 0;
+			index->szIdxRow = ESTIMATED_ROW_SIZE;
+			index->nColumn = table->nCol;
+			index->onError = OE_Abort;
+			index->azColl = reinterpret_cast<char **>(sqlite3DbMallocZero(db, sizeof(char *) * table->nCol));
+			for (uint32_t j = 0; j < table->nCol; ++j) {
+				index->azColl[j] = reinterpret_cast<char *>(sqlite3DbMallocZero(db, sizeof(char) * (strlen("BINARY") + 1)));
+				memcpy(index->azColl[j], "BINARY", strlen("BINARY"));
+			}
+
+			//---- TYPE ----
+
+			data = box_tuple_field(index_tpl, 3);
+			type = (int)mp_typeof(*data);
+			if (type != MP_STR) {
+				say_debug("%s(): field[3] in tuple in INDEX must be string, but is %d\n", __func_name, type);
+				goto __get_trntl_spaces_index_bad;
+			} else {
+				MValue buf = MValue::FromMSGPuck(&data);
+				if ((buf.GetStr()[0] == 'T') || (buf.GetStr()[0] == 't')) {
+					index->bUnordered = 0;
+				} else {
+					index->bUnordered = 1;
+				}
+			}
+
+			//---- UNIQUE ----
+
+			data = box_tuple_field(index_tpl, 4);
+			map_size = mp_decode_map(&data);
+			if (map_size != 1) {
+				say_debug("%s(): field[4] map size in INDEX must be 1, but %u\n", __func_name, map_size);
+				goto __get_trntl_spaces_index_bad;
+			}
+			for (uint32_t j = 0; j < map_size; ++j) {
+				key = MValue::FromMSGPuck(&data);
+				value = MValue::FromMSGPuck(&data);
+				if (key.GetType() != MP_STR) {
+					say_debug("%s(): field[4][%u].key must be string, but type %d\n", __func_name, j, key.GetType());
+					goto __get_trntl_spaces_index_bad;
+				}
+				if (value.GetType() != MP_BOOL) {
+					say_debug("%s(): field[4][%u].value must be bool, but type %d\n", __func_name, j, value.GetType());
+					goto __get_trntl_spaces_index_bad;
+				}
+			}
+			if ((key.GetStr()[0] == 'u') || (key.GetStr()[0] == 'U')) {
+				if (value.GetBool()) {
+					if (!index->idxType) index->idxType = 1;
+					index->uniqNotNull = 1;
+				}
+				else index->uniqNotNull = 0;
+			}
+
+			//---- INDEX FORMAT ----
+
+			data = box_tuple_field(index_tpl, 5);
+			idx_cols = MValue::FromMSGPuck(&data);
+			if (idx_cols.GetType() != MP_ARRAY) {
+				say_debug("%s(): field[5] in INDEX must be array, but type is %d\n", __func_name, idx_cols.GetType());
+				goto __get_trntl_spaces_index_bad;
+			}
+			index->aiColumn = reinterpret_cast<i16 *>(sqlite3DbMallocZero(db, sizeof(i16) * idx_cols.Size()));
+			index->nKeyCol = idx_cols.Size();
+			for (uint32_t j = 0, sz = idx_cols.Size(); j < sz; ++j) {
+				i16 num = idx_cols[j][0][0]->GetUint64();
+				index->aiColumn[j] = num;
+			}
+
+			// Uncomment this, if you are sure, that indices is working.
+			//
+			// sqlite3HashInsert(&idxHash, index->zName, index);
+			// if (table->pIndex) {
+			// 	index->pNext = table->pIndex;
+			// }
+			// table->pIndex = index;
+
+			index->aiRowLogEst = reinterpret_cast<LogEst *>(sqlite3DbMallocZero(db, sizeof(LogEst) * index->nKeyCol));
+			for (int i = 0; i < index->nKeyCol; ++i) index->aiRowLogEst[i] = table->nRowLogEst;
+
+			new_indices = new SIndex*[self->cnt_indices + 1];
+			memcpy(new_indices, self->indices, self->cnt_indices * sizeof(SIndex *));
+			new_indices[self->cnt_indices] = index;
+			self->cnt_indices++;
+			if (self->indices) delete[] self->indices;
+			self->indices = new_indices;
+
+			continue;
+__get_trntl_spaces_index_bad:
+			box_iterator_free(index_it);
+			sqlite3DbFree(db, table);
+			if (index->aSortOrder) sqlite3DbFree(db, index->aSortOrder);
+			if (index->aiColumn) sqlite3DbFree(db, index->aiColumn);
+			if (index->azColl) {
+				for (uint32_t j = 0; j < index->nColumn; ++j) {
+					sqlite3DbFree(db, index->azColl[j]);
+				}
+				sqlite3DbFree(db, index->azColl);
+			}
+			if (index) sqlite3DbFree(db, index);
+			goto __get_trntl_spaces_end_bad;
+		}
+		box_iterator_free(index_it);
+
 		sqlite3HashInsert(&tblHash, table->zName, table);
 	}
 
 	box_iterator_free(it);
 	box_txn_commit();
+	*idxHash_ = idxHash;
 	return tblHash;
 __get_trntl_spaces_end_bad:
 	box_txn_rollback();
@@ -596,12 +889,18 @@ void sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->self = self;
 	self->cursors = NULL;
 	self->cnt_cursors = 0;
+	self->indices = NULL;
+	self->cnt_indices = 0;
 	ob->trntl_cursor_create = trntl_cursor_create;
 	ob->trntl_cursor_first = trntl_cursor_first;
 	ob->trntl_cursor_data_size = trntl_cursor_data_size;
 	ob->trntl_cursor_data_fetch = trntl_cursor_data_fetch;
 	ob->trntl_cursor_next = trntl_cursor_next;
 	ob->trntl_cursor_close = trntl_cursor_close;
+	ob->check_num_on_tarantool_id = check_num_on_tarantool_id;
+	ob->trntl_cursor_move_to_unpacked = trntl_cursor_move_to_unpacked;
+	ob->trntl_cursor_key_size = trntl_cursor_key_size;
+	ob->trntl_cursor_key_fetch = trntl_cursor_key_fetch;
 }
 
 }

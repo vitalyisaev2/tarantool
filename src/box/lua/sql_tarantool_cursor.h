@@ -55,6 +55,7 @@ private:
 	const char *key_end;
 	box_iterator_t *it;
 	box_tuple_t *tpl;
+	SIndex *sql_index;
 
 	sqlite3 *db;
 
@@ -62,17 +63,21 @@ private:
 	uint32_t size;
 
 	bool make_btree_cell_from_tuple();
+	bool make_btree_key_from_tuple();
 
 public:
 	TarantoolCursor();
 	TarantoolCursor(sqlite3 *db_, uint32_t space_id_, uint32_t index_id_, int type_,
-               const char *key_, const char *key_end_);
+               const char *key_, const char *key_end_, SIndex *sql_index_);
 	TarantoolCursor(const TarantoolCursor &ob);
 	TarantoolCursor &operator=(const TarantoolCursor &ob);
 	int MoveToFirst(int *pRes);
 	int DataSize(u32 *pSize) const;
 	const void *DataFetch(u32 *pAmt) const;
+	int KeySize(i64 *pSize);
+	const void *KeyFetch(u32 *pAmt);
 	int Next(int *pRes);
+	int MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pRes, RecordCompare xRecordCompare);
 	~TarantoolCursor();
 };
 

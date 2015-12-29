@@ -92,10 +92,7 @@ int CalculateHeaderSize(size_t h) {
 
 bool TarantoolCursor::make_btree_cell_from_tuple() {
 	if (tpl == NULL) return false;
-	if (size) {
-		//sqlite3DbFree(db, data);
-		size = 0;
-	}
+	size = 0;
 	int cnt = box_tuple_field_count(tpl);
 	MValue *fields = new MValue[cnt];
 	int *serial_types = new int[cnt];
@@ -205,13 +202,152 @@ bool TarantoolCursor::make_btree_cell_from_tuple() {
 	return true;
 }
 
+bool TarantoolCursor::make_btree_key_from_tuple() {
+	if (sql_index == NULL) return false;
+	if (tpl == NULL) return false;
+	size = 0;
+	int cnt = box_tuple_field_count(tpl);
+	MValue *fields = new MValue[cnt];
+	int *serial_types = new int[cnt];
+	int *another_cols = new int[sql_index->nColumn - sql_index->nKeyCol];
+	for (int i = 0, k = 0; i < sql_index->nColumn; ++i) {
+		bool found = false;
+		for (int j = 0; j < sql_index->nKeyCol; ++j) {
+			if (i == sql_index->aiColumn[i]) {
+				found = true;
+				break;
+			}
+		}
+		if (!found) another_cols[k++] = i;
+	}
+	for (int i = 0; i < sql_index->nKeyCol; ++i) {
+		const char *tmp = box_tuple_field(tpl, sql_index->aiColumn[i]);
+		fields[size] = MValue::FromMSGPuck(&tmp);
+		if (fields[size].GetType() == -1) {
+			delete[] fields;
+			delete[] serial_types;
+			return false;
+		}
+		++size;
+	}
+	for (int i = 0, cnt2 = sql_index->nColumn - sql_index->nKeyCol; i < cnt2; ++i) {
+		const char *tmp = box_tuple_field(tpl, another_cols[i]);
+		fields[size] = MValue::FromMSGPuck(&tmp);
+		if (fields[size].GetType() == -1) {
+			delete[] fields;
+			delete[] serial_types;
+			return false;
+		}
+		++size;
+	}
+	delete[] another_cols;
+	size = 0;
+
+	int header_size = 0;
+	int data_size = 0;
+
+	for (int i = 0; i < cnt; ++i) {
+		MValue *val = fields + i;
+		serial_types[i] = 0;
+		switch(val->GetType()) {
+			case MP_NIL: break;
+			case MP_UINT: {
+				serial_types[i] = GetSerialTypeNum(val->GetUint64());
+				header_size += sqlite3VarintLen(serial_types[i]);
+				data_size += DataVarintLenNum(val->GetUint64());
+				break;
+			}
+			case MP_STR: {
+				size_t len;
+				val->GetStr(&len);
+				serial_types[i] = GetSerialTypeStr(len);
+				header_size += sqlite3VarintLen(serial_types[i]);
+				data_size += len;
+				break;
+			}
+			case MP_INT: {
+				serial_types[i] = GetSerialTypeNum(val->GetInt64());
+				header_size += sqlite3VarintLen(serial_types[i]);
+				data_size += DataVarintLenNum(val->GetInt64());
+				break;
+			}
+			case MP_BIN: {
+				size_t len;
+				val->GetBin(&len);
+				serial_types[i] = GetSerialTypeStr(len);
+				header_size += sqlite3VarintLen(serial_types[i]);
+				data_size += len;
+				break;
+			}
+			case MP_BOOL: {
+				u64 tmp = (val->GetBool()) ? 1 : 0;
+				serial_types[i] = GetSerialTypeNum(tmp);
+				header_size += sqlite3VarintLen(serial_types[i]);
+				data_size += DataVarintLenNum(tmp);
+				break;
+			}
+			default: {
+				delete[] fields;
+				delete[] serial_types;
+				return false;
+			}
+		}
+	}
+
+	header_size = CalculateHeaderSize(header_size);
+	data = sqlite3DbMallocZero(db, header_size + data_size);
+	int offset = 0;
+	offset += sqlite3PutVarint((unsigned char *)data + offset, header_size);
+	for (int i = 0; i < cnt; ++i) {
+		offset += sqlite3PutVarint((unsigned char *)data + offset, serial_types[i]);
+	}
+
+	for (int i = 0; i < cnt; ++i) {
+		MValue *val = fields + i;
+		switch(val->GetType()) {
+			case MP_UINT: {
+				offset += PutVarintDataNum((unsigned char *)data + offset, val->GetUint64());
+				break;
+			}
+			case MP_INT: {
+				offset += PutVarintDataNum((unsigned char *)data + offset, val->GetInt64());
+				break;
+			}
+			case MP_STR: {
+				size_t len;
+				const char *tmp = val->GetStr(&len);
+				memcpy((char *)data + offset, tmp, len);
+				offset += len;
+				break;
+			}
+			case MP_BIN: {
+				size_t len;
+				const char *tmp = val->GetBin(&len);
+				memcpy((char *)data + offset, tmp, len);
+				offset += len;
+				break;
+			}
+			case MP_BOOL: {
+				u64 tmp = (val->GetBool()) ? 1 : 0;
+				offset += PutVarintDataNum((unsigned char *)data + offset, tmp);
+				break;
+			}
+			default: break;
+		}		
+	}
+	delete[] fields;
+	delete[] serial_types;
+	size = header_size + data_size;
+	return true;
+}
+
 TarantoolCursor::TarantoolCursor() : space_id(0), index_id(0), type(-1), key(NULL),
 	key_end(NULL), it(NULL), tpl(NULL), db(NULL), data(NULL), size(0) { }
 
 TarantoolCursor::TarantoolCursor(sqlite3 *db_, uint32_t space_id_, uint32_t index_id_, int type_,
-               const char *key_, const char *key_end_)
+               const char *key_, const char *key_end_, SIndex *sql_index_)
 : space_id(space_id_), index_id(index_id_), type(type_), key(key_), key_end(key_end_),
-	tpl(NULL), db(db_), data(NULL), size(0) {
+	tpl(NULL), sql_index(sql_index_), db(db_), data(NULL), size(0) {
 	it = box_index_iterator(space_id, index_id, type, key, key_end);
 }
 
@@ -241,6 +377,18 @@ const void *TarantoolCursor::DataFetch(u32 *pAmt) const {
 	return data;
 }
 
+int TarantoolCursor::KeySize(i64 *pSize) {
+	this->make_btree_key_from_tuple();
+	*pSize = size;
+	return SQLITE_OK;
+}
+
+const void *TarantoolCursor::KeyFetch(u32 *pAmt) {
+	this->make_btree_key_from_tuple();
+	*pAmt = size;
+	return data;
+}
+
 int TarantoolCursor::Next(int *pRes) {
 	static const char *__func_name = "TarantoolCursor::Next";
 
@@ -251,7 +399,6 @@ int TarantoolCursor::Next(int *pRes) {
 		return SQLITE_OK;
 	}
 	if (!tpl) {
-		//sqlite3DbFree(db, data);
 		*pRes = 1;
 		return SQLITE_OK;
 	} else {
@@ -259,6 +406,60 @@ int TarantoolCursor::Next(int *pRes) {
 	}
 	rc = this->make_btree_cell_from_tuple();
 	return SQLITE_OK;
+}
+
+int TarantoolCursor::MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pRes, RecordCompare xRecordCompare) {
+	static const char *__func_name = "TarantoolCursor::MoveToUnpacked";
+	int rc = SQLITE_OK;
+	if (!xRecordCompare) {
+		say_debug("%s(): intKey not supported, intKey = %lld\n", __func_name, intKey);
+		return SQLITE_ERROR;
+	} else {
+		rc = this->MoveToFirst(pRes);
+		if (!tpl) {
+			*pRes = -1;
+			rc = SQLITE_OK;
+			say_debug("%s(): space is empty\n", __func_name);
+			return rc;
+		}
+		if (rc) {
+			say_debug("%s(): MoveToFirst return rc = %d <> 0\n", __func_name, rc);
+			return rc;
+		}
+		*pRes = 0;
+		while(!*pRes) {
+			i64 data_size;
+			u32 tmp_;
+			this->make_btree_key_from_tuple();
+			if ((rc = this->KeySize(&data_size))) {
+				say_debug("%s(): DataSize return rc = %d <> 0\n", __func_name, rc);
+				return rc;
+			}
+			const void *data = this->KeyFetch(&tmp_);
+			data_size = tmp_;
+			int c = xRecordCompare(data_size, data, pIdxKey);
+			if (!c) {
+				*pRes = 0;
+          		rc = SQLITE_OK;
+          		say_debug("%s(): find match\n", __func_name);
+          		return rc;
+			}
+			if (c > 0) {
+				*pRes = 1;
+				rc = SQLITE_OK;
+				say_debug("%s(): no matches found\n", __func_name);
+				return rc;
+			}
+			rc = this->Next(pRes);
+			if (rc) {
+				say_debug("%s(): Next return rc = %d <> 0\n", __func_name, rc);
+				return rc;
+			}
+		}
+		*pRes = -1;
+		rc = SQLITE_OK;
+	}
+	return rc;
 }
 
 TarantoolCursor::TarantoolCursor(const TarantoolCursor &ob) : data(NULL), size(0) {
@@ -273,6 +474,7 @@ TarantoolCursor &TarantoolCursor::operator=(const TarantoolCursor &ob) {
 	key_end = ob.key_end;
 	tpl = ob.tpl;
 	db = ob.db;
+	sql_index = ob.sql_index;
 	if (ob.size) {
 		size = ob.size;
 		data = sqlite3DbMallocZero(db, size);

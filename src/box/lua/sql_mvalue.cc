@@ -46,6 +46,10 @@ int64_t MValue::GetInt64() const {
 	return res;
 }
 
+int MValue::Size() const {
+	return data_len;
+}
+
 const char *MValue::GetStr(size_t *len) const {
 	error = false;
 	if (type != MP_STR) {

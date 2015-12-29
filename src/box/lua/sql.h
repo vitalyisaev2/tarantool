@@ -35,6 +35,8 @@ extern "C" {
 #include <stdint.h>
 #include <inttypes.h>
 
+#define ESTIMATED_ROW_SIZE 100
+
 void box_lua_sqlite_init(struct lua_State *L);
 
 }

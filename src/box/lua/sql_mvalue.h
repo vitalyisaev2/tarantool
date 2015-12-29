@@ -59,6 +59,7 @@ public:
 	MValue *operator[](int index);
 	const MValue *operator[](int index) const;
 	MValue &operator=(const MValue &ob);
+	int Size() const;
 
 	static MValue FromMSGPuck(const char **data);
 
@@ -66,42 +67,5 @@ public:
 
 	~MValue();
 };
-
-// uint32_t get_hash_mvalue(mvalue *);
-
-// #if !MH_SOURCE
-// #define MH_UNDEF
-// #endif
-
-// #include "third_party/PMurHash.h"
-
-// /*
-//  * Map: (mvalue *) => (mvalue *)
-//  */
-// enum {
-// 	MH_MVALUE_HASH_SEED = 19U
-// };
-
-// #define mh_name _mvalptr
-// struct mh_mvalptr_key_t {
-// 	mvalue *key;
-// 	uint32_t hash;
-// };
-// #define mh_key_t struct mh_mvalptr_key_t *
-
-// struct mh_mvalptr_node_t {
-// 	mvalue *key;
-// 	uint32_t hash;
-// 	mvalue *val;
-// };
-// #define mh_node_t struct mh_mvalptr_node_t
-
-// #define mh_arg_t mvalue *
-// #define mh_hash(a, arg) ((a)->hash)
-// #define mh_hash_key(a, arg) ((a)->hash)
-// #define mh_cmp(a, b, arg) ((a)->len != (b)->len || \
-// 			    strncmp((a)->str, (b)->str, (a)->len))
-// #define mh_cmp_key(a, b, arg) mh_cmp(a, b, arg)
-// #include "salad/mhash.h"
 
 #endif
