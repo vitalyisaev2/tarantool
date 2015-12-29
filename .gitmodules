@@ -16,4 +16,4 @@
 	url = https://github.com/tarantool/test-run.git
 [submodule "third_party/sqlite"]
 	path = third_party/sqlite
-	url = https://github.com/mackyle/sqlite.git
+	url = https://github.com/tarantool/sqlite 
