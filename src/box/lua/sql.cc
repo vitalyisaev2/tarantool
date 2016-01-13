@@ -570,7 +570,7 @@ Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema
 		}
 		table->pSchema = pSchema;
 		table->iPKey = -1;
-		//table->tabFlags = TF_WithoutRowid | TF_HasPrimaryKey;
+		table->tabFlags = TF_WithoutRowid | TF_HasPrimaryKey;
 
 		const char *data = box_tuple_field(tpl, 0);
 		int type = (int)mp_typeof(*data);
@@ -737,6 +737,8 @@ Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema
 				goto __get_trntl_spaces_index_bad;
 			}
 			if (index_id.GetUint64()) {
+				index->idxType = 0;
+			} else {
 				index->idxType = 2;
 			}
 			index->tnum = make_index_id(space_id.GetUint64(), index_id.GetUint64());
@@ -814,7 +816,7 @@ Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema
 			}
 			if ((key.GetStr()[0] == 'u') || (key.GetStr()[0] == 'U')) {
 				if (value.GetBool()) {
-					if (!index->idxType) index->idxType = 1;
+					if (index->idxType != 2) index->idxType = 1;
 					index->uniqNotNull = 1;
 				}
 				else index->uniqNotNull = 0;
@@ -828,22 +830,31 @@ Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema
 				say_debug("%s(): field[5] in INDEX must be array, but type is %d\n", __func_name, idx_cols.GetType());
 				goto __get_trntl_spaces_index_bad;
 			}
-			index->aiColumn = reinterpret_cast<i16 *>(sqlite3DbMallocZero(db, sizeof(i16) * idx_cols.Size()));
+			index->aiColumn = reinterpret_cast<i16 *>(sqlite3DbMallocZero(db, sizeof(i16) * table->nCol));
 			index->nKeyCol = idx_cols.Size();
 			for (uint32_t j = 0, sz = idx_cols.Size(); j < sz; ++j) {
 				i16 num = idx_cols[j][0][0]->GetUint64();
 				index->aiColumn[j] = num;
 			}
+			for (uint32_t j = 0, start = idx_cols.Size(); j < table->nCol; ++j) {
+				bool used = false;
+				for (uint32_t k = 0, sz = idx_cols.Size(); k < sz; ++k) {
+					if (index->aiColumn[k] == j) {
+						used = true;
+						break;
+					}
+				}
+				if (used) continue;
+				index->aiColumn[start++] = j;
+			}
 
 			// Uncomment this, if you are sure, that indices is working.
 			//
-			// if (index_id.GetUint64() == 0) {
-			// 	sqlite3HashInsert(&idxHash, index->zName, index);
-			// 	if (table->pIndex) {
-			// 		index->pNext = table->pIndex;
-			// 	}
-			// 	table->pIndex = index;
-			// }
+			sqlite3HashInsert(&idxHash, index->zName, index);
+			if (table->pIndex) {
+				index->pNext = table->pIndex;
+			}
+			table->pIndex = index;
 
 			index->aiRowLogEst = reinterpret_cast<LogEst *>(sqlite3DbMallocZero(db, sizeof(LogEst) * index->nKeyCol));
 			for (int i = 0; i < index->nKeyCol; ++i) index->aiRowLogEst[i] = table->nRowLogEst;
