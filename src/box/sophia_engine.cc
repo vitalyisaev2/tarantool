@@ -304,6 +304,7 @@ SophiaEngine::init()
 	sp_setint(env, "compaction.node_size", cfg_geti("sophia.node_size"));
 	sp_setint(env, "compaction.page_size", cfg_geti("sophia.page_size"));
 	sp_setint(env, "compaction.0.async", 1);
+	sp_setint(env, "compaction.0.snapshot_period", 0);
 	sp_setint(env, "log.enable", 0);
 	sp_setint(env, "log.two_phase_recover", 1);
 	sp_setint(env, "log.commit_lsn", 1);
