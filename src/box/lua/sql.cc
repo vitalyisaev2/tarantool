@@ -188,8 +188,9 @@ sql_callback(void *data, int cols, char **values, char **names) {
 	if (res->names == NULL) {
 		res->names = (char **)malloc(sizeof(char *) * cols);
 		for (int i = 0; i < cols; ++i) {
-			int tmp = strlen(names[i]) * sizeof(char);
+			int tmp = (strlen(names[i]) + 1) * sizeof(char);
 			res->names[i] = (char *)malloc(tmp);
+			memset(res->names[i], 0, tmp);
 			memcpy(res->names[i], names[i], tmp);
 		}
 		res->cols = cols;
@@ -203,9 +204,16 @@ sql_callback(void *data, int cols, char **values, char **names) {
 	int cur = res->rows - 1;
 	res->values[cur] = (char **)malloc(sizeof(char *) * cols);
 	for (int i = 0; i < cols; ++i) {
-		int tmp = sizeof(char) * strlen(values[i]);
+		int tmp = 0;
+		if (values[i] == NULL) {
+			tmp = sizeof(char) * strlen("NULL");
+		} else tmp = sizeof(char) * strlen(values[i]);
+		++tmp;
 		res->values[cur][i] = (char *)malloc(tmp);
-		memcpy(res->values[cur][i], values[i], tmp);
+		memset(res->values[cur][i], 0, tmp);
+		if (values[i] == NULL) {
+			memcpy(res->values[cur][i], "NULL", tmp);
+		} else memcpy(res->values[cur][i], values[i], tmp);
 	}
 	return 0;
 }
@@ -268,10 +276,21 @@ sqlite3 *lua_check_sqliteconn(struct lua_State *L, int index)
 static int
 lua_sqlite_pushresult(struct lua_State *L, sql_result res)
 {
+
+	lua_createtable(L, 1, 1);
+	int tmp = lua_gettop(L);
+	lua_pushstring(L, "__serialize");
+	lua_pushstring(L, "seq");
+	lua_settable(L, tmp);
+
+
+	//lua_setmetatable(L, tid);
 	lua_createtable(L, 0, 1 + res.rows);
 	int tid = lua_gettop(L);
 	//adding array of names
 	lua_createtable(L, res.cols, 0);
+	lua_pushvalue(L, tmp);
+	lua_setmetatable(L, -2);
 	int names_id = lua_gettop(L);
 	for (size_t i = 0; i < res.cols; ++i) {
 		lua_pushstring(L, res.names[i]);
@@ -280,6 +299,8 @@ lua_sqlite_pushresult(struct lua_State *L, sql_result res)
 	lua_rawseti(L, tid, 1);
 	for (size_t i = 0; i < res.rows; ++i) {
 		lua_createtable(L, res.cols, 0);
+		lua_pushvalue(L, tmp);
+		lua_setmetatable(L, -2);
 		int vals_id = lua_gettop(L);
 		for (size_t j = 0; j < res.cols; ++j) {
 			lua_pushstring(L, res.values[i][j]);
@@ -287,8 +308,7 @@ lua_sqlite_pushresult(struct lua_State *L, sql_result res)
 		}
 		lua_rawseti(L, tid, i + 2);
 	}
-	lua_pushboolean(L, 1);
-	return 2;
+	return 1;
 }
 
 /**

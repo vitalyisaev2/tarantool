@@ -43,6 +43,10 @@ int GetSerialTypeNum(u64 number) {
 	}
 }
 
+int GetSerialTypeNum(double) {
+	return 7;
+}
+
 int GetSerialTypeNum(i64 number) {
 	u64 tmp;
 	memcpy(&tmp, &number, sizeof(u64));
@@ -62,13 +66,25 @@ int PutVarintDataNum(unsigned char *data, u64 n) {
 	if ((st == 8) || (st == 9)) {
 		return 0;
 	}
-	return sqlite3PutVarint(data, n);
+	Mem mem;
+	memset(&mem, 0, sizeof(Mem));
+	memcpy((void *)&mem.u.i, (const void *)&n, sizeof(i64));
+	mem.flags = MEM_Int;
+	return sqlite3VdbeSerialPut(data, &mem, st);
 }
 
 int PutVarintDataNum(unsigned char *data, i64 n) {
 	u64 tmp;
 	memcpy(&tmp, &n, sizeof(u64));
 	return PutVarintDataNum(data, tmp);
+}
+
+int PutVarintDataNum(unsigned char *data, double n) {
+	Mem tmp;
+	memset(&tmp, 0, sizeof(Mem));
+	tmp.u.r = n;
+	tmp.flags = MEM_Real;
+	return sqlite3VdbeSerialPut(data, &tmp, GetSerialTypeNum(n));
 }
 
 int DataVarintLenNum(u64 number) {
@@ -80,6 +96,10 @@ int DataVarintLenNum(i64 number) {
 	u64 tmp;
 	memcpy(&tmp, &number, sizeof(u64));
 	return DataVarintLenNum(tmp);
+}
+
+int DataVarintLenNum(double) {
+	return 8;
 }
 
 int CalculateHeaderSize(size_t h) {
@@ -149,6 +169,13 @@ bool TarantoolCursor::make_btree_cell_from_tuple() {
 				data_size += DataVarintLenNum(tmp);
 				break;
 			}
+			case MP_DOUBLE: {
+				double tmp = val->GetDouble();
+				serial_types[i] = GetSerialTypeNum(tmp);
+				header_size += sqlite3VarintLen(serial_types[i]);
+				data_size += DataVarintLenNum(tmp);
+				break;
+			}
 			default: {
 				delete[] fields;
 				delete[] serial_types;
@@ -195,6 +222,11 @@ bool TarantoolCursor::make_btree_cell_from_tuple() {
 				offset += PutVarintDataNum((unsigned char *)data + offset, tmp);
 				break;
 			}
+			case MP_DOUBLE: {
+				double tmp = val->GetDouble();
+				offset += PutVarintDataNum((unsigned char *)data + offset, tmp);
+				break;
+			}
 			default: break;
 		}		
 	}
@@ -213,7 +245,7 @@ bool TarantoolCursor::make_btree_key_from_tuple() {
 	for (int i = 0, k = 0; i < sql_index->nColumn; ++i) {
 		bool found = false;
 		for (int j = 0; j < sql_index->nKeyCol; ++j) {
-			if (i == sql_index->aiColumn[i]) {
+			if (i == sql_index->aiColumn[j]) {
 				found = true;
 				break;
 			}
@@ -286,6 +318,13 @@ bool TarantoolCursor::make_btree_key_from_tuple() {
 				data_size += DataVarintLenNum(tmp);
 				break;
 			}
+			case MP_DOUBLE: {
+				double tmp = val->GetDouble();
+				serial_types[i] = GetSerialTypeNum(tmp);
+				header_size += sqlite3VarintLen(serial_types[i]);
+				data_size += DataVarintLenNum(tmp);
+				break;
+			}
 			default: {
 				delete[] fields;
 				delete[] serial_types;
@@ -329,6 +368,11 @@ bool TarantoolCursor::make_btree_key_from_tuple() {
 			}
 			case MP_BOOL: {
 				u64 tmp = (val->GetBool()) ? 1 : 0;
+				offset += PutVarintDataNum((unsigned char *)data + offset, tmp);
+				break;
+			}
+			case MP_DOUBLE: {
+				double tmp = val->GetDouble();
 				offset += PutVarintDataNum((unsigned char *)data + offset, tmp);
 				break;
 			}

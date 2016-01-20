@@ -24,6 +24,17 @@ MValue &MValue::operator=(const MValue &ob) {
 	return *this;
 }
 
+double MValue::GetDouble() const {
+	error = false;
+	if (type != MP_DOUBLE) {
+		error = true;
+		return 0;
+	}
+	double res;
+	memcpy(&res, data, sizeof(double));
+	return res;
+}
+
 uint64_t MValue::GetUint64() const {
 	error = false;
 	if (type != MP_UINT) {

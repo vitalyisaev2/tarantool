@@ -34,6 +34,8 @@
 extern "C" {
 #include "sqlite3.h"
 #include "sqliteInt.h"
+#include "vdbeInt.h"
+#include <string.h>
 }
 
 #undef likely

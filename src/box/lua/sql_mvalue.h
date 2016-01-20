@@ -51,6 +51,7 @@ public:
 	bool IsEmpty() const;
 	int GetType() const;
 
+	double GetDouble() const;
 	uint64_t GetUint64() const;
 	int64_t GetInt64() const;
 	const char *GetStr(size_t *len = NULL) const;

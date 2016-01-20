@@ -1,0 +1,148 @@
+box.schema.space.create('test1')
+---
+- index: []
+  on_replace: 'function: 0x01e3ca30'
+  temporary: false
+  id: 512
+  engine: memtx
+  enabled: false
+  name: test1
+  field_count: 0
+- created
+...
+box.schema.space.create('test2')
+---
+- index: []
+  on_replace: 'function: 0x01e3edb0'
+  temporary: false
+  id: 513
+  engine: memtx
+  enabled: false
+  name: test2
+  field_count: 0
+- created
+...
+box.space.test1:create_index('primary', {type = 'TREE', parts = {1, 'NUM'}})
+---
+- unique: true
+  parts:
+  - type: NUM
+    fieldno: 1
+  id: 0
+  space_id: 512
+  name: primary
+  type: TREE
+...
+box.space.test2:create_index('primary', {type = 'TREE', parts = {1, 'NUM'}})
+---
+- unique: true
+  parts:
+  - type: NUM
+    fieldno: 1
+  id: 0
+  space_id: 513
+  name: primary
+  type: TREE
+...
+format = {}
+---
+...
+format[1] = {name='f1', type='num'}
+---
+...
+format[2] = {name='f2', type='num'}
+---
+...
+box.space.test1:format(format)
+---
+...
+format = {}
+---
+...
+format[1] = {name='r1', type='num'}
+---
+...
+format[2] = {name='r2', type='num'}
+---
+...
+box.space.test2:format(format)
+---
+...
+box.space.test1:insert({11, 22})
+---
+- [11, 22]
+...
+box.space.test2:insert({1, 2.2})
+---
+- [1, 2.2]
+...
+r = require('sql')
+---
+...
+c = r.connect('my_table')
+---
+...
+c:execute('select * from test232') --no such table
+---
+- error: 'Error: error while executing query `select * from test232`
+
+    Error message: no such table: test232'
+...
+c:execute('select * from test1, test232') --no such table
+---
+- error: 'Error: error while executing query `select * from test1, test232`
+
+    Error message: no such table: test232'
+...
+c:execute('select * from test232, test1') --no such table
+---
+- error: 'Error: error while executing query `select * from test232, test1`
+
+    Error message: no such table: test232'
+...
+c:execute('select f1 from test1')
+---
+- - ['f1']
+  - ['11.0']
+...
+c:execute('select f2 from test1')
+---
+- - ['f2']
+  - ['22.0']
+...
+c:execute('select f2, f1 from test1')
+---
+- - ['f2', 'f1']
+  - ['22.0', '11.0']
+...
+c:execute('select f1, f2 from test1')
+---
+- - ['f1', 'f2']
+  - ['11.0', '22.0']
+...
+c:execute('select * from test1')
+---
+- - ['f1', 'f2']
+  - ['11.0', '22.0']
+...
+c:execute('select max(f1, f2), min(f1, f2) from test1')
+---
+- - ['max(f1, f2)', 'min(f1, f2)']
+  - ['22.0', '11.0']
+...
+c:execute('select "one", "two", f1 from test1')
+---
+- - ['"one"', '"two"', 'f1']
+  - ['one', 'two', '11.0']
+...
+c:execute('select * from test1, test2')
+---
+- - ['f1', 'f2', 'r1', 'r2']
+  - ['11.0', '22.0', '1.0', '2.2']
+...
+box.space.test1:drop()
+---
+...
+box.space.test2:drop()
+---
+...
