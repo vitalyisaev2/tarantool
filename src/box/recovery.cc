@@ -268,7 +268,7 @@ recover_xlog(struct recovery *r, struct xlog *l, int64_t to_checkpoint)
 	 * the file is fully read: it's fully read only
 	 * when EOF marker has been read, see i.eof_read
 	 */
-	while (xlog_cursor_next(&i, &row) == 0) {
+	while (xlog_cursor_next_xc(&i, &row) == 0) {
 		if (r->vclock.signature >= to_checkpoint)
 			return;
 		try {
@@ -300,7 +300,7 @@ recovery_bootstrap(struct recovery *r)
 	const char *filename = "bootstrap.snap";
 	FILE *f = fmemopen((void *) &bootstrap_bin,
 			   sizeof(bootstrap_bin), "r");
-	struct xlog *snap = xlog_open_stream(&r->snap_dir, 0, f, filename);
+	struct xlog *snap = xlog_open_stream_xc(&r->snap_dir, 0, f, filename);
 	auto guard = make_scoped_guard([=]{
 		xlog_close(snap);
 	});
@@ -322,8 +322,12 @@ recovery_bootstrap(struct recovery *r)
 void
 recover_remaining_wals(struct recovery *r, int64_t to_checkpoint)
 {
-	xdir_scan_xc(&r->wal_dir);
-
+	/*
+	 * Sic: it could be tempting to put xdir_scan() inside
+	 * this function. This would slow down relay quite a bit,
+	 * since xdir_scan() would be invoked on every relay
+	 * row.
+	 */
 	struct vclock *last = vclockset_last(&r->wal_dir.index);
 	if (last == NULL) {
 		if (r->current_wal != NULL) {
@@ -395,10 +399,11 @@ recover_current_wal:
 
 void
 recovery_finalize(struct recovery *r, enum wal_mode wal_mode,
-		  int rows_per_wal)
+		  int64_t rows_per_wal)
 {
 	recovery_stop_local(r);
 
+	xdir_scan_xc(&r->wal_dir);
 	recover_remaining_wals(r, LSN_INFINITE);
 
 	recovery_close_log(r);
@@ -529,7 +534,7 @@ public:
 	}
 };
 
-static void
+static int
 recovery_follow_f(va_list ap)
 {
 	struct recovery *r = va_arg(ap, struct recovery *);
@@ -540,7 +545,34 @@ recovery_follow_f(va_list ap)
 
 	while (! fiber_is_cancelled()) {
 
-		recover_remaining_wals(r, LSN_INFINITE);
+		/*
+		 * Recover until there is no new stuff which appeared in
+		 * the log dir while recovery was running.
+		 *
+		 * Use vclock signature to represent the current wal
+		 * since the xlog object itself may be freed in
+		 * recover_remaining_rows().
+		 */
+		int64_t start, end;
+		do {
+			start = r->current_wal ? vclock_sum(&r->current_wal->vclock) : 0;
+			/*
+			 * If there is no current WAL, or we reached
+			 * an end  of one, look for new WALs.
+			 */
+			if (r->current_wal == NULL || r->current_wal->eof_read)
+				xdir_scan_xc(&r->wal_dir);
+
+			recover_remaining_wals(r, LSN_INFINITE);
+
+			end = r->current_wal ? vclock_sum(&r->current_wal->vclock) : 0;
+			/*
+			 * Continue, given there's been progress *and* there is a
+			 * chance new WALs have appeared since.
+			 * Sic: end * is < start (is 0) if someone deleted all logs
+			 * on the filesystem.
+			 */
+		} while (end > start && (r->current_wal == NULL || r->current_wal->eof_read));
 
 		subscription.set_log_path(r->current_wal != NULL ?
 					  r->current_wal->filename : NULL);
@@ -557,6 +589,7 @@ recovery_follow_f(va_list ap)
 
 		subscription.signaled = false;
 	}
+	return 0;
 }
 
 void
@@ -567,6 +600,7 @@ recovery_follow_local(struct recovery *r, const char *name,
 	 * Scan wal_dir and recover all existing at the moment xlogs.
 	 * Blocks until finished.
 	 */
+	xdir_scan_xc(&r->wal_dir);
 	recover_remaining_wals(r, LSN_INFINITE);
 	recovery_close_log(r);
 

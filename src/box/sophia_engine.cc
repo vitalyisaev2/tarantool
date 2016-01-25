@@ -353,7 +353,7 @@ sophia_join_key_def(void *env, void *db)
 	struct key_def *key_def;
 	struct key_opts key_opts = key_opts_default;
 	key_def = key_def_new(id, 0, "sophia_join", TREE, &key_opts, count);
-	int i = 0;
+	unsigned i = 0;
 	while (i < count) {
 		char path[64];
 		int len = snprintf(path, sizeof(path), "db.%d.index.key", id);
@@ -486,14 +486,14 @@ SophiaEngine::keydefCheck(struct space *space, struct key_def *key_def)
 				  space_name(space),
 				  "Sophia TREE secondary indexes are not supported");
 		}
-		const int keypart_limit = 8;
+		const uint32_t keypart_limit = 8;
 		if (key_def->part_count > keypart_limit) {
 			tnt_raise(ClientError, ER_MODIFY_INDEX,
 			          key_def->name,
 			          space_name(space),
 			          "Sophia TREE index too many key-parts (8 max)");
 		}
-		int i = 0;
+		unsigned i = 0;
 		while (i < key_def->part_count) {
 			struct key_part *part = &key_def->parts[i];
 			if (part->type != NUM && part->type != STRING) {

@@ -47,6 +47,7 @@
 #include "third_party/base64.h"
 #include "coio.h"
 #include "xrow.h"
+#include "schema.h" /* sc_version */
 #include "recovery.h" /* server_uuid */
 #include "iproto_constants.h"
 #include "authentication.h"
@@ -118,8 +119,6 @@ struct IprotoMsgGuard {
 	{ struct iproto_msg *tmp = msg; msg = NULL; return tmp; }
 };
 
-enum { IPROTO_FIBER_POOL_SIZE = 1024, IPROTO_FIBER_POOL_IDLE_TIMEOUT = 3 };
-
 /* }}} */
 
 /* {{{ iproto connection and requests */
@@ -174,7 +173,7 @@ struct iproto_connection
 	 * make sure ibuf_reserve() or iobuf rotation don't make
 	 * the value meaningless.
 	 */
-	ssize_t parse_size;
+	size_t parse_size;
 	struct ev_io input;
 	struct ev_io output;
 	/** Logical session. */
@@ -380,7 +379,7 @@ iproto_connection_input_iobuf(struct iproto_connection *con)
 {
 	struct iobuf *oldbuf = con->iobuf[0];
 
-	ssize_t to_read = 3; /* Smallest possible valid request. */
+	size_t to_read = 3; /* Smallest possible valid request. */
 
 	/* The type code is checked in iproto_enqueue_batch() */
 	if (con->parse_size) {
@@ -481,6 +480,8 @@ iproto_enqueue_batch(struct iproto_connection *con, struct ibuf *in)
 		cpipe_push_input(&tx_pipe, guard.release());
 
 		/* Request is parsed */
+		assert(reqend > reqstart);
+		assert(con->parse_size >= (size_t) (reqend - reqstart));
 		con->parse_size -= reqend - reqstart;
 		if (con->parse_size == 0 || stop_input)
 			break;
@@ -626,8 +627,6 @@ iproto_connection_on_output(ev_loop *loop, struct ev_io *watcher,
 		iproto_connection_close(con);
 	}
 }
-
-extern int sc_version;
 
 static void
 tx_process_msg(struct cmsg *m)
@@ -870,7 +869,7 @@ static struct evio_service binary; /* iproto binary listener */
  * The network io thread main function:
  * begin serving the message bus.
  */
-static void
+static int
 net_cord_f(va_list /* ap */)
 {
 	/* Got to be called in every thread using iobuf */
@@ -904,6 +903,7 @@ net_cord_f(va_list /* ap */)
 
 	rmean_delete(rmean_net);
 	cbus_leave(&net_tx_bus);
+	return 0;
 }
 
 /** Initialize the iproto subsystem and start network io thread */
@@ -915,13 +915,7 @@ iproto_init()
 	cbus_create(&net_tx_bus);
 	rmean_net_tx_bus = net_tx_bus.stats;
 	cpipe_create(&tx_pipe);
-	cpipe_set_max_input(&tx_pipe, CPIPE_MAX_INPUT);
 	cpipe_create(&net_pipe);
-	static struct cpipe_fiber_pool fiber_pool;
-
-	cpipe_fiber_pool_create(&fiber_pool, "iproto", &tx_pipe,
-				IPROTO_FIBER_POOL_SIZE,
-				IPROTO_FIBER_POOL_IDLE_TIMEOUT);
 
 	static struct cord net_cord;
 	if (cord_costart(&net_cord, "iproto", net_cord_f, NULL))

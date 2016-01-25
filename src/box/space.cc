@@ -103,8 +103,7 @@ space_new(struct space_def *def, struct rlist *key_list)
 	struct space *space = (struct space *) calloc(1, sz);
 
 	if (space == NULL)
-		tnt_raise(LoggedError, ER_MEMORY_ISSUE,
-			  sz, "struct space", "malloc");
+		tnt_raise(OutOfMemory, sz, "malloc", "struct space");
 
 	rlist_create(&space->on_replace);
 	auto scoped_guard = make_scoped_guard([=]
@@ -190,7 +189,7 @@ space_dump_def(const struct space *space, struct rlist *key_list)
 {
 	rlist_create(key_list);
 
-	for (int j = 0; j < space->index_count; j++)
+	for (unsigned j = 0; j < space->index_count; j++)
 		rlist_add_tail_entry(key_list, space->index[j]->key_def,
 				     link);
 }
@@ -216,7 +215,7 @@ space_stat(struct space *sp)
 	static __thread struct space_stat space_stat;
 
 	space_stat.id = space_id(sp);
-	int i = 0;
+	unsigned i = 0;
 	for (; i < sp->index_id_max; i++) {
 		Index *index = space_index(sp, i);
 		if (index) {

@@ -63,7 +63,7 @@ sophia_tuple_new(void *obj, struct key_def *key_def,
 
 	/* prepare keys */
 	int size = 0;
-	int i = 0;
+	uint32_t i = 0;
 	while (i < key_def->part_count) {
 		char partname[32];
 		int len = snprintf(partname, sizeof(partname), "key");
@@ -99,7 +99,7 @@ sophia_tuple_new(void *obj, struct key_def *key_def,
 	} else {
 		raw = (char *)malloc(size);
 		if (raw == NULL)
-			tnt_raise(ClientError, ER_MEMORY_ISSUE, size, "tuple");
+			tnt_raise(OutOfMemory, size, "malloc", "tuple");
 		p = raw;
 	}
 	p = mp_encode_array(p, count);
@@ -136,7 +136,7 @@ SophiaIndex::createDocument(const char *key, bool async, const char **keyend)
 	sp_setstring(obj, "arg", fiber(), 0);
 	if (key == NULL)
 		return obj;
-	int i = 0;
+	uint32_t i = 0;
 	while (i < key_def->part_count) {
 		char partname[32];
 		int len = snprintf(partname, sizeof(partname), "key");
@@ -185,7 +185,7 @@ sophia_configure(struct space *space, struct key_def *key_def)
 	         key_def->space_id);
 	sp_setint(env, path, key_def->space_id);
 	/* apply space schema */
-	int i = 0;
+	uint32_t i = 0;
 	while (i < key_def->part_count)
 	{
 		char *type;
@@ -371,7 +371,7 @@ sophia_upsert_mp(char **tuple, int *tuple_size_key, struct key_def *key_def,
 {
 	/* calculate msgpack size */
 	uint32_t mp_keysize = 0;
-	int i = 0;
+	uint32_t i = 0;
 	while (i < key_def->part_count) {
 		if (key_def->parts[i].type == STRING)
 			mp_keysize += mp_sizeof_str(key_size[i]);
@@ -672,9 +672,8 @@ SophiaIndex::allocIterator() const
 	struct sophia_iterator *it =
 		(struct sophia_iterator *) calloc(1, sizeof(*it));
 	if (it == NULL) {
-		tnt_raise(ClientError, ER_MEMORY_ISSUE,
-		          sizeof(struct sophia_iterator), "Sophia Index",
-		          "iterator");
+		tnt_raise(OutOfMemory, sizeof(struct sophia_iterator),
+			  "Sophia Index", "iterator");
 	}
 	it->base.next = sophia_iterator_next;
 	it->base.free = sophia_iterator_free;
@@ -691,8 +690,8 @@ SophiaIndex::initIterator(struct iterator *ptr,
 	assert(it->cursor == NULL);
 	if (part_count > 0) {
 		if (part_count != key_def->part_count) {
-			tnt_raise(ClientError, ER_UNSUPPORTED,
-			          "Sophia Index iterator", "partial keys");
+			tnt_raise(UnsupportedIndexFeature, this,
+				  "partial keys");
 		}
 	} else {
 		key = NULL;
@@ -719,8 +718,7 @@ SophiaIndex::initIterator(struct iterator *ptr,
 	case ITER_LT: compare = "<";
 		break;
 	default:
-		tnt_raise(ClientError, ER_UNSUPPORTED,
-		          "Sophia Index", "requested iterator type");
+		return initIterator(ptr, type, key, part_count);
 	}
 	it->base.next = sophia_iterator_next;
 	it->cursor = sp_cursor(env);

@@ -53,6 +53,9 @@ local mapping_mt = { __serialize = 'mapping' }
 local CONSOLE_FAKESYNC  = 15121974
 local CONSOLE_DELIMITER = "$EOF$"
 
+local VSPACE_ID = 281
+local VINDEX_ID = 289
+
 ffi.cdef [[
 enum {
     /* Maximal length of protocol name in handshake */
@@ -741,14 +744,14 @@ local remote_methods = {
         self:_switch_state('schema')
 
         local resp = self:_request_internal(SELECT,
-            true, box.schema.VSPACE_ID, 0, nil, { iterator = 'ALL' })
+            true, VSPACE_ID, 0, nil, { iterator = 'ALL' })
 
         -- set new schema id after first request
         self._schema_id = resp.hdr[SCHEMA_ID]
 
         local spaces = resp.body[DATA]
         resp = self:_request_internal(SELECT,
-            true, box.schema.VINDEX_ID, 0, nil, { iterator = 'ALL' })
+            true, VINDEX_ID, 0, nil, { iterator = 'ALL' })
         local indexes = resp.body[DATA]
 
         local sl = {}
@@ -765,12 +768,18 @@ local remote_methods = {
                 engine          = engine,
                 field_count     = field_count,
                 enabled         = true,
-                index           = {}
+                index           = {},
+                temporary       = false
             }
-            if #space > 5 and string.match(space[6], 'temporary') then
-                s.temporary = true
-            else
-                s.temporary = false
+            if #space > 5 then
+                local opts = space[6]
+                if type(opts) == 'table' then
+                    -- Tarantool >= 1.7.0
+                    s.temporary = not not opts.temporary
+                elseif type(opts) == 'string' then
+                    -- Tarantool < 1.7.0
+                    s.temporary = string.match(opts, 'temporary') ~= nil
+                end
             end
 
             setmetatable(s, space_metatable(self))

@@ -66,7 +66,7 @@ struct wal_writer
 	struct cpipe wal_pipe;
 	/* ----------------- wal ------------------- */
 	/** A setting from server configuration - rows_per_wal */
-	int rows_per_wal;
+	int64_t rows_per_wal;
 	/** Another one - wal_mode */
 	enum wal_mode wal_mode;
 	/** wal_dir, from the configuration file. */
@@ -217,7 +217,7 @@ tx_schedule_rollback(struct cmsg *msg)
 static void
 wal_writer_create(struct wal_writer *writer, enum wal_mode wal_mode,
 		  const char *wal_dirname, const struct tt_uuid *server_uuid,
-		  struct vclock *vclock, int rows_per_wal)
+		  struct vclock *vclock, int64_t rows_per_wal)
 {
 	writer->wal_mode = wal_mode;
 	writer->rows_per_wal = rows_per_wal;
@@ -230,11 +230,6 @@ wal_writer_create(struct wal_writer *writer, enum wal_mode wal_mode,
 
 	cpipe_create(&writer->tx_pipe);
 	cpipe_create(&writer->wal_pipe);
-	/*
-	 * This doesn't really mean anything as long as we
-	 * multiplex requests in wal_batch
-	 */
-	cpipe_set_max_input(&writer->wal_pipe, CPIPE_MAX_INPUT);
 
 	writer->batch = fio_batch_new();
 	if (writer->batch == NULL)
@@ -264,7 +259,7 @@ wal_writer_destroy(struct wal_writer *writer)
 }
 
 /** WAL writer thread routine. */
-static void
+static int
 wal_writer_f(va_list ap);
 
 /**
@@ -282,7 +277,7 @@ wal_writer_f(va_list ap);
 void
 wal_writer_start(enum wal_mode wal_mode, const char *wal_dirname,
 		 const struct tt_uuid *server_uuid, struct vclock *vclock,
-		 int rows_per_wal)
+		 int64_t rows_per_wal)
 {
 	assert(rows_per_wal > 1);
 
@@ -602,7 +597,7 @@ done:
 }
 
 /** WAL writer thread main loop.  */
-static void
+static int
 wal_writer_f(va_list ap)
 {
 	struct wal_writer *writer = va_arg(ap, struct wal_writer *);
@@ -619,6 +614,7 @@ wal_writer_f(va_list ap)
 		writer->current_wal = NULL;
 	}
 	cbus_leave(&writer->tx_wal_bus);
+	return 0;
 }
 
 /**
