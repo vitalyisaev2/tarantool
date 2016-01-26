@@ -295,6 +295,7 @@ SophiaEngine::init()
 	env = sp_env();
 	if (env == NULL)
 		panic("failed to create sophia environment");
+	sp_setint(env, "sophia.recover", 2);
 	sp_setint(env, "sophia.path_create", 0);
 	sp_setstring(env, "sophia.path", cfg_gets("sophia_dir"), 0);
 	sp_setstring(env, "scheduler.on_event", (const void *)sophia_on_event, 0);
@@ -306,8 +307,6 @@ SophiaEngine::init()
 	sp_setint(env, "compaction.0.async", 1);
 	sp_setint(env, "compaction.0.snapshot_period", 0);
 	sp_setint(env, "log.enable", 0);
-	sp_setint(env, "log.two_phase_recover", 1);
-	sp_setint(env, "log.commit_lsn", 1);
 	int rc = sp_open(env);
 	if (rc == -1)
 		sophia_error(env);
