@@ -116,7 +116,6 @@ SophiaSpace::executeReplace(struct txn *txn, struct space *space,
 	SophiaIndex *index = (SophiaIndex *)index_find(space, 0);
 
 	space_validate_tuple_raw(space, request->tuple);
-	tuple_field_count_validate(space->format, request->tuple);
 
 	int size = request->tuple_end - request->tuple;
 	const char *key =
@@ -199,14 +198,8 @@ SophiaSpace::executeUpsert(struct txn *txn, struct space *space,
 
 	/* Check field count in tuple */
 	space_validate_tuple_raw(space, request->tuple);
-	tuple_field_count_validate(space->format, request->tuple);
-
-	/* validate upsert key */
-	uint32_t tuple_len = request->tuple_end - request->tuple;
-	const char *key = tuple_field_raw(request->tuple, tuple_len, 0);
-
-	uint32_t part_count = index->key_def->part_count;
-	primary_key_validate(index->key_def, key, part_count);
+	/* Check tuple fields */
+	tuple_validate_raw(space->format, request->tuple);
 
 	index->upsert(request->ops,
 	              request->ops_end,
@@ -286,6 +279,10 @@ sophia_async_schedule(ev_loop *loop, struct ev_async *w, int /* events */)
 void
 SophiaEngine::init()
 {
+	char sophia_dir[PATH_MAX];
+	if (abspath_inplace(cfg_gets("sophia_dir"),
+		            sophia_dir, sizeof(sophia_dir)) == -1)
+		panic_syserror("getcwd");
 	cord = cord();
 	ev_idle_init(&idle, sophia_idle_cb);
 	ev_async_init(&watcher, sophia_async_schedule);
@@ -297,13 +294,11 @@ SophiaEngine::init()
 		panic("failed to create sophia environment");
 	sp_setint(env, "sophia.recover", 2);
 	sp_setint(env, "sophia.path_create", 0);
-	sp_setstring(env, "sophia.path", cfg_gets("sophia_dir"), 0);
+	sp_setstring(env, "sophia.path", sophia_dir, 0);
 	sp_setstring(env, "scheduler.on_event", (const void *)sophia_on_event, 0);
 	sp_setstring(env, "scheduler.on_event_arg", (const void *)this, 0);
 	sp_setint(env, "scheduler.threads", cfg_geti("sophia.threads"));
 	sp_setint(env, "memory.limit", cfg_geti64("sophia.memory_limit"));
-	sp_setint(env, "compaction.node_size", cfg_geti("sophia.node_size"));
-	sp_setint(env, "compaction.page_size", cfg_geti("sophia.page_size"));
 	sp_setint(env, "compaction.0.async", 1);
 	sp_setint(env, "compaction.0.snapshot_period", 0);
 	sp_setint(env, "log.enable", 0);
@@ -362,7 +357,7 @@ sophia_join_key_def(void *env, void *db)
 	struct key_def *key_def;
 	struct key_opts key_opts = key_opts_default;
 	key_def = key_def_new(id, 0, "sophia_join", TREE, &key_opts, count);
-	int i = 0;
+	unsigned i = 0;
 	while (i < count) {
 		char path[64];
 		int len = snprintf(path, sizeof(path), "db.%d.index.key", id);
@@ -395,14 +390,6 @@ SophiaEngine::join(struct relay *relay)
 		tnt_raise(ClientError, ER_MISSING_SNAPSHOT);
 	int64_t signt = vclock_sum(res);
 
-	/*
-	 * Snapshot object used here only to get a list of
-	 * available spaces at the moment when snapshot
-	 * were created.
-	 *
-	 * Feeding slave with a latest versions of data.
-	*/
-
 	/* get snapshot object */
 	char id[128];
 	snprintf(id, sizeof(id), "view.%" PRIu64, signt);
@@ -427,7 +414,7 @@ SophiaEngine::join(struct relay *relay)
 			throw;
 		}
 		/* send database */
-		void *cursor = sp_cursor(env);
+		void *cursor = sp_cursor(snapshot);
 		if (cursor == NULL) {
 			sp_destroy(db_cursor);
 			key_def_delete(key_def);
@@ -438,16 +425,6 @@ SophiaEngine::join(struct relay *relay)
 		{
 			uint32_t tuple_size;
 			char *tuple = (char *)sophia_tuple_new(obj, key_def, NULL, &tuple_size);
-
-			/* TODO:
-			 *
-			 * pass exact lsn as row.lsn and ensure that slave
-			 * properly accepts rows with variadic lsn.
-			 *
-			 */
-			int64_t lsn = sp_getint(obj, "lsn");
-			(void)lsn;
-
 			try {
 				sophia_send_row(relay, key_def->space_id, tuple, tuple_size);
 			} catch (Exception *e) {
@@ -516,14 +493,14 @@ SophiaEngine::keydefCheck(struct space *space, struct key_def *key_def)
 				  space_name(space),
 				  "Sophia TREE secondary indexes are not supported");
 		}
-		const int keypart_limit = 8;
+		const uint32_t keypart_limit = 8;
 		if (key_def->part_count > keypart_limit) {
 			tnt_raise(ClientError, ER_MODIFY_INDEX,
 			          key_def->name,
 			          space_name(space),
 			          "Sophia TREE index too many key-parts (8 max)");
 		}
-		int i = 0;
+		unsigned i = 0;
 		while (i < key_def->part_count) {
 			struct key_part *part = &key_def->parts[i];
 			if (part->type != NUM && part->type != STRING) {
@@ -652,12 +629,12 @@ sophia_snapshot(void *env, int64_t lsn)
 	if (o) {
 		return;
 	}
-	/* create snapshot */
 	snprintf(snapshot, sizeof(snapshot), "%" PRIu64, lsn);
 	rc = sp_setstring(env, "view", snapshot, 0);
 	if (rc == -1)
 		sophia_error(env);
-	/* tell snapshot to release a transaction */
+
+	/* XXX: */
 	snprintf(snapshot, sizeof(snapshot), "view.%" PRIu64, lsn);
 	o = sp_getobject(env, snapshot);
 	assert(o != NULL);
@@ -675,10 +652,13 @@ sophia_reference_checkpoint(void *env, int64_t lsn)
 	if (rc == -1)
 		sophia_error(env);
 	char snapshot[128];
+
+	/* XXX: */
 	snprintf(snapshot, sizeof(snapshot), "view.%" PRIu64, lsn);
 	void *o = sp_getobject(env, snapshot);
 	assert(o != NULL);
 	sp_setint(o, "db-view-only", 1);
+
 	/* update lsn */
 	snprintf(snapshot, sizeof(snapshot), "view.%" PRIu64 ".lsn", lsn);
 	rc = sp_setint(env, snapshot, lsn);

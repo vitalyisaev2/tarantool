@@ -13,6 +13,20 @@ fio.pathjoin('/', 'abc')
 fio.pathjoin('abc/', '/cde')
 fio.pathjoin('/', '/cde')
 
+-- pathjoin2
+fio.pathjoin2()
+fio.pathjoin2(nil)
+fio.pathjoin2('a')
+fio.pathjoin2('/a')
+fio.pathjoin2('a', 'b', 'c')
+fio.pathjoin2('/a', 'b', 'c')
+fio.pathjoin2('a', '/b', 'c')
+fio.pathjoin2('a/b/c', 'd')
+fio.pathjoin2('..', 'a/b/c')
+fio.pathjoin2('/', '..', 'a/b/c')
+fio.pathjoin2('a/b/c', '..')
+fio.pathjoin2('a//b//c/', 'd/.')
+
 -- basename
 fio.basename(nil)
 fio.basename('/')
@@ -121,6 +135,12 @@ fio.rmdir(tmpdir)
 fio.unlink()
 fio.unlink(nil)
 
+-- gh-1211 use 0777 if mode omitted in open
+fh4 = fio.open('newfile', {'O_RDWR','O_CREAT','O_EXCL'})
+string.format('%o', bit.band(fh4:stat().mode, 0x1FF))
+fh4:close()
+fio.unlink('newfile')
+
 -- dirname
 
 fio.dirname(nil)
@@ -136,3 +156,12 @@ fio.abspath("/")
 fio.abspath("/tmp")
 type(string.find(fio.abspath("tmp"), "tmp"))
 
+-- chdir
+old_cwd = fio.cwd()
+fio.chdir(nil)
+fio.chdir(42)
+fio.chdir('/no/such/file/or/directory')
+fio.chdir('/')
+fio.cwd()
+fio.chdir(old_cwd)
+fio.cwd() == old_cwd

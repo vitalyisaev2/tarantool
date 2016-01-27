@@ -4,6 +4,7 @@ log = require 'log'
 msgpack = require 'msgpack'
 env = require('test_run')
 test_run = env.new()
+test_run:cmd("push filter ".."'\\.lua.*:[0-9]+: ' to '.lua...\"]:<line>: '")
 
 LISTEN = require('uri').parse(box.cfg.listen)
 space = box.schema.space.create('net_box_test_space')
@@ -365,21 +366,8 @@ _ = fiber.create(
          conn:call('no_such_function', {})
    end
 );
-while true do
-   local line = file_log:read(2048)
-   if line ~= nil then
-      if string.match(line, "ER_UNKNOWN") == nil then
-         return "Success"
-      else
-         return "Failure"
-      end
-   end
-   fiber.sleep(0.01)
-end;
-
 test_run:cmd("setopt delimiter ''");
-
-file_log:close()
+test_run:grep_log("default", "ER_NO_SUCH_PROC")
 
 -- gh-983 selecting a lot of data crashes the server or hangs the
 -- connection
@@ -412,3 +400,4 @@ c.space.test:select{}
 box.space.test:drop()
 
 box.schema.user.revoke('guest', 'read,write,execute', 'universe')
+test_run:cmd("clear filter")

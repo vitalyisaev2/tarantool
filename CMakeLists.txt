@@ -54,7 +54,6 @@ include(cmake/atomic.cmake)
 include(cmake/profile.cmake)
 include(cmake/FindReadline.cmake)
 include(cmake/FindSphinx.cmake)
-include(cmake/systemd.cmake)
 include(cmake/module.cmake)
 include(cmake/thread.cmake)
 
@@ -126,47 +125,58 @@ add_custom_target(tags COMMAND ${CTAGS} -R -f tags
 add_custom_target(ctags DEPENDS tags)
 
 #
-# Define PACKAGE_VERSION -- a string constant with tarantool version.
+# Get version
 #
-set (CPACK_PACKAGE_VERSION_MAJOR "1")
-set (CPACK_PACKAGE_VERSION_MINOR "7")
-set (CPACK_PACKAGE_VERSION_PATCH "0")
 
 set (PACKAGE_VERSION "")
+set (TARANTOOL_VERSION "")
+
+# Try to get version from VERSION file
+set(VERSION_FILE_ORIG "${PROJECT_SOURCE_DIR}/VERSION")
+set(VERSION_FILE "${PROJECT_BINARY_DIR}/VERSION")
+if (EXISTS "${VERSION_FILE_ORIG}")
+    file (STRINGS "${VERSION_FILE_ORIG}" TARANTOOL_VERSION)
+elseif (EXISTS "${VERSION_FILE}")
+    file (STRINGS "${VERSION_FILE}" TARANTOOL_VERSION)
+endif()
 
 # Get git version only if source directory has .git repository, this
 # avoids git to search .git repository in parent
 # directories.
 #
 if (EXISTS "${CMAKE_SOURCE_DIR}/.git")
-	execute_process (COMMAND ${GIT} describe HEAD
-		OUTPUT_VARIABLE PACKAGE_VERSION
-		OUTPUT_STRIP_TRAILING_WHITESPACE
+    execute_process (COMMAND ${GIT} describe --long HEAD
+        OUTPUT_VARIABLE TARANTOOL_GIT_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    if (PACKAGE_VERSION STREQUAL "")
-        message (FATAL_ERROR "Failed to retrive git version.")
+
+    if (NOT ("${TARANTOOL_GIT_VERSION}" STREQUAL "${TARANTOOL_VERSION}"))
+        set(TARANTOOL_VERSION "${TARANTOOL_GIT_VERSION}")
+        file(WRITE ${VERSION_FILE} "${TARANTOOL_VERSION}\n")
+        message(STATUS "Generating VERSION file")
     endif()
 endif()
 
-set (VERSION_FILE "${CMAKE_SOURCE_DIR}/VERSION")
+if (NOT TARANTOOL_VERSION)
+    message (FATAL_ERROR "Unable to retrive version from git or ${VERSION_FILE} file.")
+endif()
 
-# Update version file or use it when there is no git
-# repository within sources (source tarballs).
 #
-if (PACKAGE_VERSION STREQUAL "")
-    if (NOT EXISTS "${VERSION_FILE}")
-        message (FATAL_ERROR "Version file ${VERSION_FILE} does not exists.")
-    endif()
-    message (WARNING "Using version from version file ${VERSION_FILE}")
-	execute_process (COMMAND ${CAT} ${VERSION_FILE}
-		OUTPUT_VARIABLE PACKAGE_VERSION
-		OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if (PACKAGE_VERSION STREQUAL "")
-        message (FATAL_ERROR "Unable to retrive version from git or ${VERSION_FILE} file.")
-    endif()
-else()
-	file(WRITE ${VERSION_FILE} "${PACKAGE_VERSION}\n")
-endif()
+# Split full version (git describe --long) to get components
+#
+string(REPLACE "-" "." TARANTOOL_VERSION_LIST ${TARANTOOL_VERSION})
+string(REPLACE "." ";" TARANTOOL_VERSION_LIST ${TARANTOOL_VERSION_LIST})
+LIST(GET TARANTOOL_VERSION_LIST 0 CPACK_PACKAGE_VERSION_MAJOR)
+LIST(GET TARANTOOL_VERSION_LIST 1 CPACK_PACKAGE_VERSION_MINOR)
+LIST(GET TARANTOOL_VERSION_LIST 2 CPACK_PACKAGE_VERSION_PATCH)
+LIST(GET TARANTOOL_VERSION_LIST 3 CPACK_PACKAGE_VERSION_COMMIT)
+
+set(PACKAGE_VERSION "${CPACK_PACKAGE_VERSION_MAJOR}")
+set(PACKAGE_VERSION "${PACKAGE_VERSION}.${CPACK_PACKAGE_VERSION_MINOR}")
+set(PACKAGE_VERSION "${PACKAGE_VERSION}.${CPACK_PACKAGE_VERSION_PATCH}")
+set(PACKAGE_VERSION "${PACKAGE_VERSION}.${CPACK_PACKAGE_VERSION_COMMIT}")
+
+message(STATUS "Tarantool version is ${TARANTOOL_VERSION} (${PACKAGE_VERSION})")
 
 #
 # Specify where to look for include files.
@@ -356,8 +366,6 @@ add_dependencies(build_bundled_libs misc)
 include(BuildSophia)
 sophia_build()
 
-option(ENABLE_RPM "Enable install of a RPM specific files" OFF)
-
 # cpack config. called package.cmake to avoid
 # conflicts with the global CPack.cmake (On MacOS X
 # file names are case-insensitive)
@@ -375,9 +383,6 @@ add_subdirectory(src)
 add_subdirectory(extra)
 add_subdirectory(test)
 add_subdirectory(doc)
-
-install (FILES README.md LICENSE
-         DESTINATION share/doc/tarantool)
 
 #
 # tarantool info summary (used in server version output)
@@ -399,7 +404,7 @@ configure_file(
 message (STATUS "")
 message (STATUS "Tarantool configuration is complete:")
 message (STATUS "")
-message (STATUS "VERSION: ${PACKAGE_VERSION}")
+message (STATUS "VERSION: ${TARANTOOL_VERSION}")
 message (STATUS "BUILD: ${TARANTOOL_BUILD}")
 message (STATUS "C_COMPILER: ${TARANTOOL_C_COMPILER}")
 message (STATUS "CXX_COMPILER: ${TARANTOOL_CXX_COMPILER}")
@@ -420,6 +425,7 @@ message (STATUS "ENABLE_BUNDLED_LIBEIO: ${ENABLE_BUNDLED_LIBEIO}")
 message (STATUS "ENABLE_BUNDLED_LIBCORO: ${ENABLE_BUNDLED_LIBCORO}")
 message (STATUS "ENABLE_BUNDLED_LIBYAML: ${ENABLE_BUNDLED_LIBYAML}")
 message (STATUS "ENABLE_DOC: ${ENABLE_DOC}")
+message (STATUS "ENABLE_DIST: ${ENABLE_DIST}")
 list_optional_packages()
 if (TARGET_OS_DARWIN)
     message (STATUS "DARWIN_BUILD_TYPE: ${DARWIN_BUILD_TYPE}")

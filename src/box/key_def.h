@@ -87,6 +87,9 @@ schema_object_type(const char *name);
 enum field_type { UNKNOWN = 0, NUM, STRING, ARRAY, NUMBER, field_type_MAX };
 extern const char *field_type_strs[];
 
+/* MsgPack type names */
+extern const char *mp_type_strs[];
+
 /**
  * The supported language of the stored function.
  */
@@ -114,6 +117,16 @@ enum index_type {
 };
 
 extern const char *index_type_strs[];
+
+struct opt_def {
+	const char *name;
+	enum mp_type type;
+	ptrdiff_t offset;
+	uint32_t len;
+};
+
+#define OPT_DEF(key, type, opts, field) \
+	{ key, type, offsetof(opts, field), sizeof(((opts *)0)->field) }
 
 enum rtree_index_distance_type {
 	 /* Euclid distance, sqrt(dx*dx + dy*dy) */
@@ -144,10 +157,24 @@ struct key_opts {
 	/**
 	 * RTREE distance type.
 	 */
+	char distancebuf[16];
 	enum rtree_index_distance_type distance;
+	/**
+	 * Sophia index options.
+	 */
+	char path[PATH_MAX];
+	char compression[16];
+	char compression_branch[16];
+	uint32_t compression_key;
+	uint32_t node_size;
+	uint32_t page_size;
+	uint32_t sync;
+	uint32_t mmap;
+	uint32_t amqf;
 };
 
 extern const struct key_opts key_opts_default;
+extern const struct opt_def key_opts_reg[];
 
 static inline int
 key_opts_cmp(const struct key_opts *o1, const struct key_opts *o2)
@@ -264,6 +291,20 @@ struct priv_def {
 	rb_node(struct priv_def) link;
 };
 
+/** Space options */
+struct space_opts {
+        /**
+	 * The space is a temporary:
+	 * - it is empty at server start
+	 * - changes are not written to WAL
+	 * - changes are not part of a snapshot
+	 */
+	bool temporary;
+};
+
+extern const struct space_opts space_opts_default;
+extern const struct opt_def space_opts_reg[];
+
 /** Space metadata. */
 struct space_def {
 	/** Space id. */
@@ -279,13 +320,7 @@ struct space_def {
 	uint32_t field_count;
 	char name[BOX_NAME_MAX + 1];
 	char engine_name[BOX_NAME_MAX + 1];
-        /**
-	 * The space is a temporary:
-	 * - it is empty at server start
-	 * - changes are not written to WAL
-	 * - changes are not part of a snapshot
-	 */
-	bool temporary;
+	struct space_opts opts;
 };
 
 /**
@@ -410,7 +445,7 @@ key_mp_type_validate(enum field_type key_type, enum mp_type mp_type,
 	       int err, uint32_t field_no)
 {
 	assert(key_type < field_type_MAX);
-	assert((int) mp_type < (int) CHAR_BIT * sizeof(*key_mp_type));
+	assert((size_t) mp_type < CHAR_BIT * sizeof(*key_mp_type));
 	if (unlikely((key_mp_type[key_type] & (1U << mp_type)) == 0))
 		tnt_raise(ClientError, err, field_no,
 			  field_type_strs[key_type]);

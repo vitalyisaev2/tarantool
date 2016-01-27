@@ -148,9 +148,10 @@ end
  @example
  check_param_table(options, { user = 'string',
                               port = 'string, number',
-                              data = 'any' } )
+                              data = 'any',
+                              allow_unexpected = false } )
 --]]
-local function check_param_table(table, template)
+local function check_param_table(table, template, allow_unexpected)
     if table == nil then
         return
     end
@@ -164,8 +165,12 @@ local function check_param_table(table, template)
     end
     for k,v in pairs(table) do
         if template[k] == nil then
-            box.error(box.error.ILLEGAL_PARAMS,
-                      "options parameter '" .. k .. "' is unexpected")
+            if not allow_unexpected then
+                box.error(box.error.ILLEGAL_PARAMS,
+                          "unexpected option '" .. k .. "'")
+            else
+                -- option will be checked by C code
+            end
         elseif template[k] == 'any' then
             -- any type is ok
         elseif (string.find(template[k], ',') == nil) then
@@ -239,7 +244,6 @@ box.schema.space.create = function(name, options)
     check_param(name, 'name', 'string')
     local options_template = {
         if_not_exists = 'boolean',
-        temporary = 'boolean',
         engine = 'string',
         id = 'number',
         field_count = 'number',
@@ -250,7 +254,7 @@ box.schema.space.create = function(name, options)
         engine = 'memtx',
         field_count = 0,
     }
-    check_param_table(options, options_template)
+    check_param_table(options, options_template, true)
     options = update_param_table(options, options_defaults)
 
     local _space = box.space[box.schema.SPACE_ID]
@@ -281,9 +285,15 @@ box.schema.space.create = function(name, options)
     if uid == nil then
         uid = session.uid()
     end
-    local temporary = options.temporary and "temporary" or ""
     local format = options.format and options.format or {}
-    _space:insert{id, uid, name, options.engine, options.field_count, temporary, format}
+    local extra_options = setmetatable({}, { __serialize = 'mapping' })
+    for k, v in pairs(options) do
+        if options_template[k] == nil then
+            extra_options[k] = v
+        end
+    end
+    _space:insert{id, uid, name, options.engine, options.field_count,
+        extra_options, format}
     return box.space[id], "created"
 end
 
@@ -379,9 +389,9 @@ box.schema.index.create = function(space_id, name, options)
         id = 'number',
         if_not_exists = 'boolean',
         dimension = 'number',
-        distance = 'string',
+        distance = 'string'
     }
-    check_param_table(options, options_template)
+    check_param_table(options, options_template, true)
     local options_defaults = {
         type = 'tree',
     }
@@ -428,6 +438,11 @@ box.schema.index.create = function(space_id, name, options)
     end
     local key_opts = { dimension = options.dimension,
         unique = options.unique, distance = options.distance }
+    for k, v in pairs(options) do
+        if options_template[k] == nil then
+            key_opts[k] = v
+        end
+    end
     _index:insert{space_id, iid, name, options.type, key_opts, parts}
     return box.space[space_id].index[name]
 end
@@ -496,7 +511,7 @@ box.schema.index.alter = function(space_id, index_id, options)
                       "Don't know how to update both id and" ..
                        cant_update_fields)
         end
-        ops = {}
+        local ops = {}
         local function add_op(value, field_no)
             if value then
                 table.insert(ops, {'=', field_no, value})
@@ -1134,7 +1149,8 @@ box.schema.func.create = function(name, opts)
         end
         return
     end
-    opts = update_param_table(opts, { setuid = false, type = 'lua'})
+    opts = update_param_table(opts, { setuid = false, language = 'lua'})
+    opts.language = string.upper(opts.language)
     opts.setuid = opts.setuid and 1 or 0
     _func:auto_increment{session.uid(), name, opts.setuid, opts.language}
 end

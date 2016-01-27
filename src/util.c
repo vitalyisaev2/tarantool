@@ -56,7 +56,7 @@
 uint32_t
 strindex(const char **haystack, const char *needle, uint32_t hmax)
 {
-	for (int index = 0; index != hmax && haystack[index]; index++)
+	for (unsigned index = 0; index != hmax && haystack[index]; index++)
 		if (strcasecmp(haystack[index], needle) == 0)
 			return index;
 	return hmax;
@@ -65,20 +65,20 @@ strindex(const char **haystack, const char *needle, uint32_t hmax)
 void
 close_all_xcpt(int fdc, ...)
 {
-	int keep[fdc];
+	unsigned keep[fdc];
 	va_list ap;
 	struct rlimit nofile;
 
 	va_start(ap, fdc);
 	for (int j = 0; j < fdc; j++) {
-		keep[j] = va_arg(ap, int);
+		keep[j] = va_arg(ap, unsigned);
 	}
 	va_end(ap);
 
 	if (getrlimit(RLIMIT_NOFILE, &nofile) != 0)
 		nofile.rlim_cur = 10000;
 
-	for (int i = 3; i < nofile.rlim_cur; i++) {
+	for (unsigned i = 3; i < nofile.rlim_cur; i++) {
 		bool found = false;
 		for (int j = 0; j < fdc; j++) {
 			if (keep[j] == i) {
@@ -217,20 +217,36 @@ fmemopen(void *buf, size_t size, const char *mode)
 char *
 abspath(const char *filename)
 {
-	if (filename[0] == '/')
-		return strdup(filename);
-
-	char *abspath = (char *) malloc(PATH_MAX + 1);
-	if (abspath == NULL)
+	char *buf = (char *) malloc(PATH_MAX);
+	if (buf == NULL)
 		return NULL;
-
-	if (getcwd(abspath, PATH_MAX - strlen(filename) - 1) == NULL)
-		say_syserror("getcwd");
-	else {
-		strcat(abspath, "/");
+	if (abspath_inplace(filename, buf, PATH_MAX) == -1) {
+		free(buf);
+		return NULL;
 	}
-	strcat(abspath, filename);
-	return abspath;
+	return buf;
+}
+
+int
+abspath_inplace(const char *filename, char *buf, size_t size)
+{
+	int rc;
+
+	if (filename[0] == '/') {
+		rc = snprintf(buf, size, "%s", filename);
+        } else {
+		if (getcwd(buf, size) == NULL) {
+			say_syserror("getcwd");
+			return -1;
+		}
+		rc = (int)strlen(buf);
+		rc += snprintf(buf + rc, size - rc, "/%s", filename);
+	}
+	if ((size_t)rc >= size) {
+		errno = ERANGE;
+		return -1;
+	}
+	return 0;
 }
 
 char *

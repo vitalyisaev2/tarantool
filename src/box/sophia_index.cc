@@ -63,7 +63,7 @@ sophia_tuple_new(void *obj, struct key_def *key_def,
 
 	/* prepare keys */
 	int size = 0;
-	int i = 0;
+	uint32_t i = 0;
 	while (i < key_def->part_count) {
 		char partname[32];
 		int len = snprintf(partname, sizeof(partname), "key");
@@ -99,7 +99,7 @@ sophia_tuple_new(void *obj, struct key_def *key_def,
 	} else {
 		raw = (char *)malloc(size);
 		if (raw == NULL)
-			tnt_raise(ClientError, ER_MEMORY_ISSUE, size, "tuple");
+			tnt_raise(OutOfMemory, size, "malloc", "tuple");
 		p = raw;
 	}
 	p = mp_encode_array(p, count);
@@ -136,7 +136,7 @@ SophiaIndex::createDocument(const char *key, bool async, const char **keyend)
 	sp_setstring(obj, "arg", fiber(), 0);
 	if (key == NULL)
 		return obj;
-	int i = 0;
+	uint32_t i = 0;
 	while (i < key_def->part_count) {
 		char partname[32];
 		int len = snprintf(partname, sizeof(partname), "key");
@@ -185,7 +185,7 @@ sophia_configure(struct space *space, struct key_def *key_def)
 	         key_def->space_id);
 	sp_setint(env, path, key_def->space_id);
 	/* apply space schema */
-	int i = 0;
+	uint32_t i = 0;
 	while (i < key_def->part_count)
 	{
 		char *type;
@@ -209,6 +209,11 @@ sophia_configure(struct space *space, struct key_def *key_def)
 		sp_setstring(env, path, type, 0);
 		i++;
 	}
+	/* db.path */
+	if (key_def->opts.path[0] != '\0') {
+		snprintf(path, sizeof(path), "db.%" PRIu32 ".path", key_def->space_id);
+		sp_setstring(env, path, key_def->opts.path, 0);
+	}
 	/* db.upsert */
 	snprintf(path, sizeof(path), "db.%" PRIu32 ".index.upsert", key_def->space_id);
 	sp_setstring(env, path, (const void *)(uintptr_t)sophia_upsert_callback, 0);
@@ -217,13 +222,28 @@ sophia_configure(struct space *space, struct key_def *key_def)
 	sp_setstring(env, path, (const void *)key_def, 0);
 	/* db.compression */
 	snprintf(path, sizeof(path), "db.%" PRIu32 ".compression", key_def->space_id);
-	sp_setstring(env, path, cfg_gets("sophia.compression"), 0);
+	sp_setstring(env, path, key_def->opts.compression, 0);
 	/* db.compression_branch */
 	snprintf(path, sizeof(path), "db.%" PRIu32 ".compression_branch", key_def->space_id);
-	sp_setstring(env, path, cfg_gets("sophia.compression"), 0);
+	sp_setstring(env, path, key_def->opts.compression_branch, 0);
 	/* db.compression_key */
 	snprintf(path, sizeof(path), "db.%" PRIu32 ".compression_key", key_def->space_id);
-	sp_setint(env, path, cfg_geti("sophia.compression_key"));
+	sp_setint(env, path, key_def->opts.compression_key);
+	/* db.node_size */
+	snprintf(path, sizeof(path), "db.%" PRIu32 ".node_size", key_def->space_id);
+	sp_setint(env, path, key_def->opts.node_size);
+	/* db.page_size */
+	snprintf(path, sizeof(path), "db.%" PRIu32 ".page_size", key_def->space_id);
+	sp_setint(env, path, key_def->opts.page_size);
+	/* db.sync */
+	snprintf(path, sizeof(path), "db.%" PRIu32 ".sync", key_def->space_id);
+	sp_setint(env, path, key_def->opts.sync);
+	/* db.mmap */
+	snprintf(path, sizeof(path), "db.%" PRIu32 ".mmap", key_def->space_id);
+	sp_setint(env, path, key_def->opts.mmap);
+	/* db.amqf */
+	snprintf(path, sizeof(path), "db.%" PRIu32 ".amqf", key_def->space_id);
+	sp_setint(env, path, key_def->opts.amqf);
 	/* db.path_fail_on_drop */
 	snprintf(path, sizeof(path), "db.%" PRIu32 ".path_fail_on_drop", key_def->space_id);
 	sp_setint(env, path, 0);
@@ -371,7 +391,7 @@ sophia_upsert_mp(char **tuple, int *tuple_size_key, struct key_def *key_def,
 {
 	/* calculate msgpack size */
 	uint32_t mp_keysize = 0;
-	int i = 0;
+	uint32_t i = 0;
 	while (i < key_def->part_count) {
 		if (key_def->parts[i].type == STRING)
 			mp_keysize += mp_sizeof_str(key_size[i]);
@@ -672,9 +692,8 @@ SophiaIndex::allocIterator() const
 	struct sophia_iterator *it =
 		(struct sophia_iterator *) calloc(1, sizeof(*it));
 	if (it == NULL) {
-		tnt_raise(ClientError, ER_MEMORY_ISSUE,
-		          sizeof(struct sophia_iterator), "Sophia Index",
-		          "iterator");
+		tnt_raise(OutOfMemory, sizeof(struct sophia_iterator),
+			  "Sophia Index", "iterator");
 	}
 	it->base.next = sophia_iterator_next;
 	it->base.free = sophia_iterator_free;
@@ -691,8 +710,8 @@ SophiaIndex::initIterator(struct iterator *ptr,
 	assert(it->cursor == NULL);
 	if (part_count > 0) {
 		if (part_count != key_def->part_count) {
-			tnt_raise(ClientError, ER_UNSUPPORTED,
-			          "Sophia Index iterator", "partial keys");
+			tnt_raise(UnsupportedIndexFeature, this,
+				  "partial keys");
 		}
 	} else {
 		key = NULL;
@@ -719,8 +738,7 @@ SophiaIndex::initIterator(struct iterator *ptr,
 	case ITER_LT: compare = "<";
 		break;
 	default:
-		tnt_raise(ClientError, ER_UNSUPPORTED,
-		          "Sophia Index", "requested iterator type");
+		return initIterator(ptr, type, key, part_count);
 	}
 	it->base.next = sophia_iterator_next;
 	it->cursor = sp_cursor(env);
