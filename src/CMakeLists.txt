@@ -109,7 +109,7 @@ set (server_sources
      lua/bsdsocket.cc
      lua/pickle.cc
      lua/fio.cc
-     ../third_party/sqlite/build/sqlite3.c
+     # ../third_party/sqlite/build/sqlite3.c
      ${lua_sources}
 )
 

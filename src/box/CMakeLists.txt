@@ -1,7 +1,7 @@
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/src/box/lua)
 
 include_directories(${SOPHIA_INCLUDE_DIR})
-include_directories(${CMAKE_BINARY_DIR}/third_party/sqlite/build/tsrc/)
+include_directories(${LIBSQLITE_INCLUDE_DIR})
 
 set(lua_sources)
 lua_source(lua_sources lua/load_cfg.lua)
@@ -77,4 +77,4 @@ add_library(box
     lua/sql_tarantool_cursor.cc
     ${bin_sources})
 
-target_link_libraries(box ${sophia_lib} -lsqlite3)
+target_link_libraries(box ${sophia_lib} trnsqlite)
