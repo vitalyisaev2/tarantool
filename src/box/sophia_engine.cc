@@ -298,8 +298,7 @@ SophiaEngine::init()
 	sp_setint(env, "compaction.page_size", cfg_geti("sophia.page_size"));
 	sp_setint(env, "compaction.0.async", 1);
 	sp_setint(env, "log.enable", 0);
-	sp_setint(env, "log.two_phase_recover", 1);
-	sp_setint(env, "log.commit_lsn", 1);
+	sp_setint(env, "sophia.recover", 3);
 	int rc = sp_open(env);
 	if (rc == -1)
 		sophia_error(env);
@@ -603,6 +602,14 @@ SophiaEngine::rollback(struct txn *txn)
 void
 SophiaEngine::beginJoin()
 {
+}
+
+void
+SophiaEngine::beginWalRecovery()
+{
+	int rc = sp_open(env);
+	if (rc == -1)
+		sophia_error(env);
 }
 
 void
