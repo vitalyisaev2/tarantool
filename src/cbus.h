@@ -116,6 +116,8 @@ struct fiber_pool {
 	 * for longer than this.
 	 */
 	float idle_timeout;
+	/** Staged messages (for fibers to work on) */
+	struct stailq output;
 };
 
 /**
@@ -138,7 +140,7 @@ struct cpipe {
 	 *       v
 	 *     pipe        <-- shared, protected by a mutex
 	 *       v
-	 *     output      <-- owned by the producer thread
+	 *     pool.output      <-- owned by the producer thread
 	 */
 	struct {
 		struct stailq pipe;
@@ -171,14 +173,12 @@ struct cpipe {
 	} __attribute__((aligned(CACHELINE_SIZE)));
 	/** Stuff related to the consumer. */
 	struct {
-		/** Staged messages (for pop) */
-		struct stailq output;
 		/**
 		 * Used to trigger task processing when
 		 * the pipe becomes non-empty.
 		 */
 		struct ev_async fetch_output;
-		struct fiber_pool pool;
+		struct fiber_pool *pool;
 	} __attribute__((aligned(CACHELINE_SIZE)));
 };
 
@@ -192,51 +192,6 @@ cpipe_create(struct cpipe *pipe);
 
 void
 cpipe_destroy(struct cpipe *pipe);
-
-/**
- * Pop a single message from the staged output area. If
- * the output is empty, returns NULL. There may be messages
- * in the pipe!
- */
-static inline struct cmsg *
-cpipe_pop_output(struct cpipe *pipe)
-{
-	assert(loop() == pipe->consumer);
-
-	if (stailq_empty(&pipe->output))
-		return NULL;
-	return stailq_shift_entry(&pipe->output, struct cmsg, fifo);
-}
-
-struct cmsg *
-cpipe_peek_impl(struct cpipe *pipe);
-
-/**
- * Check if the pipe has any messages. Triggers a bus
- * exchange in a critical section if the pipe is empty.
- */
-static inline struct cmsg *
-cpipe_peek(struct cpipe *pipe)
-{
-	assert(loop() == pipe->consumer);
-
-	if (stailq_empty(&pipe->output))
-		return cpipe_peek_impl(pipe);
-
-	return stailq_first_entry(&pipe->output, struct cmsg, fifo);
-}
-
-/**
- * Pop a single message. Triggers a bus exchange
- * if the pipe is empty.
- */
-static inline struct cmsg *
-cpipe_pop(struct cpipe *pipe)
-{
-	if (cpipe_peek(pipe) == NULL)
-		return NULL;
-	return cpipe_pop_output(pipe);
-}
 
 /**
  * Set pipe max size of staged push area. The default is infinity.
@@ -369,80 +324,6 @@ cbus_join(struct cbus *bus, struct cpipe *pipe);
  */
 void
 cbus_leave(struct cbus *bus);
-
-/**
- * Lock the bus. Ideally should never be used
- * outside cbus code.
- */
-static inline void
-cbus_lock(struct cbus *bus)
-{
-	/* Count statistics */
-	if (bus->stats)
-		rmean_collect(bus->stats, CBUS_STAT_LOCKS, 1);
-
-	tt_pthread_mutex_lock(&bus->mutex);
-}
-
-/** Unlock the bus. */
-static inline void
-cbus_unlock(struct cbus *bus)
-{
-	tt_pthread_mutex_unlock(&bus->mutex);
-}
-
-static inline void
-cbus_signal(struct cbus *bus)
-{
-	tt_pthread_cond_signal(&bus->cond);
-}
-
-static inline void
-cbus_wait_signal(struct cbus *bus)
-{
-	tt_pthread_cond_wait(&bus->cond, &bus->mutex);
-}
-
-/**
- * Dispatch the message to the next hop.
- */
-static inline void
-cmsg_dispatch(struct cpipe *pipe, struct cmsg *msg)
-{
-	/**
-	 * 'pipe' pointer saved in class constructor works as
-	 * a guard that the message is alive. If a message route
-	 * has the next pipe, then the message mustn't have been
-	 * destroyed on this hop. Otherwise msg->hop->pipe could
-	 * be already pointing to garbage.
-	 */
-	if (pipe) {
-		/*
-		 * Once we pushed the message to the bus,
-		 * we relinquished all write access to it,
-		 * so we must increase the current hop *before*
-		 * push.
-		 */
-		msg->hop++;
-		cpipe_push(pipe, msg);
-	}
-}
-
-/**
- * Deliver the message and dispatch it to the next hop.
- */
-static inline void
-cmsg_deliver(struct cmsg *msg)
-{
-	/*
-	 * Save the pointer to the last pipe,
-	 * the memory where it is stored may be destroyed
-	 * on the last hop.
-	 */
-	struct cpipe *pipe = msg->hop->pipe;
-	msg->hop->f(msg);
-	cmsg_dispatch(pipe, msg);
-}
 
 /**
  * A helper message to wakeup caller whenever an event
