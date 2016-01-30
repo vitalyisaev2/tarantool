@@ -57,6 +57,8 @@
 
 /* {{{ iproto_msg - declaration */
 
+/* The number of iproto messages in flight */
+enum { IPROTO_MSG_MAX = 768 };
 
 /**
  * A single msg from io thread. All requests
@@ -508,8 +510,10 @@ iproto_connection_on_input(ev_loop *loop, struct ev_io *watcher,
 
 	try {
 		/* Ensure we have sufficient space for the next round.  */
-		struct iobuf *iobuf = iproto_connection_input_iobuf(con);
-		if (iobuf == NULL) {
+		struct iobuf *iobuf;
+		if (mempool_count(&iproto_msg_pool) > IPROTO_MSG_MAX ||
+		    (iobuf = iproto_connection_input_iobuf(con)) == NULL) {
+
 			ev_io_stop(loop, &con->input);
 			return;
 		}
@@ -753,6 +757,7 @@ net_send_msg(struct cmsg *m)
 	/* Discard request (see iproto_enqueue_batch()) */
 	iobuf->in.rpos += msg->len;
 	iobuf->out.wend = msg->write_end;
+
 	if ((msg->header.type == IPROTO_SUBSCRIBE ||
 	    msg->header.type == IPROTO_JOIN)) {
 		assert(! ev_is_active(&con->input));

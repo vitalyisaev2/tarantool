@@ -44,7 +44,7 @@ static __thread struct fiber_pool fiber_pool;
 
 /* {{{ fiber_pool */
 
-enum { FIBER_POOL_SIZE = 1024, FIBER_POOL_IDLE_TIMEOUT = 3 };
+enum { FIBER_POOL_SIZE = 10240, FIBER_POOL_IDLE_TIMEOUT = 3 };
 
 /** Create fibers to handle all outstanding tasks. */
 
@@ -66,7 +66,8 @@ restart:
 		while (! stailq_empty(output))
 			cmsg_deliver(stailq_shift_entry(output, struct cmsg, fifo));
 		/* fiber_yield_timeout() is expensive, avoid under load. */
-		fiber_sleep(0);
+		fiber_wakeup(fiber());
+		fiber_yield();
 	}
 
 	/** Put the current fiber into a fiber cache. */
