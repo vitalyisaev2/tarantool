@@ -76,6 +76,8 @@ sqlite3 *global_db = NULL;
 
 sqlite3 *get_global_db() { return global_db; }
 
+void set_global_db(sqlite3 *db) { global_db = db; }
+
 void sql_tarantool_api_init(sql_tarantool_api *ob);
 
 Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema, Hash *idxHash_);
@@ -305,13 +307,12 @@ void on_replace_index(struct trigger * /*trigger*/, void * event) {
 	trigger_add(&txn->on_commit, on_commit);
 }
 
-int make_connect_sqlite_db(const char *db_name, struct sqlite3 **db) {
+void prepare_to_open_db() {
 	sql_tarantool_api_init(&global_trn_api);
 	global_trn_api_is_ready = 1;
-	int rc = sqlite3_open(db_name, db);
-	if (rc != SQLITE_OK) {
-		return rc;
-	}
+}
+
+void connect_triggers() {
 	struct space *space = space_cache_find(BOX_SPACE_ID);
 	struct trigger *alter_space_on_replace_space = (struct trigger *)malloc(sizeof(struct trigger));
 	memset(alter_space_on_replace_space, 0, sizeof(struct trigger));
@@ -327,6 +328,15 @@ int make_connect_sqlite_db(const char *db_name, struct sqlite3 **db) {
 		RLIST_LINK_INITIALIZER, on_replace_index, NULL, NULL
 	};
 	rlist_add_tail_entry(&space->on_replace, alter_space_on_replace_index, link);
+}
+
+int make_connect_sqlite_db(const char *db_name, struct sqlite3 **db) {
+	prepare_to_open_db();
+	int rc = sqlite3_open(db_name, db);
+	if (rc != SQLITE_OK) {
+		return rc;
+	}
+	connect_triggers();
 	return rc;
 }
 
@@ -408,6 +418,14 @@ lua_sqlite_pushresult(struct lua_State *L, sql_result res)
 	return 1;
 }
 
+static int
+lua_sqlite_close(struct lua_State *L)
+{
+	sqlite3 *db = lua_check_sqliteconn(L, 1);
+	sqlite3_close(db);
+	return 0;
+}
+
 /**
  * Function for executing SQL query.
  *
@@ -446,7 +464,7 @@ box_lua_sqlite_init(struct lua_State *L)
 {
 	static const struct luaL_reg sqlite_methods [] = {
 		{"execute",	lua_sqlite_execute},
-		//{"close",	lua_sqlite_close},
+		{"close",	lua_sqlite_close},
 		{NULL, NULL}
 	};
 	luaL_newmetatable(L, sqlitelib_name);
@@ -653,7 +671,7 @@ Table *get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db, Schema *pSchema
 		return NULL;
 	}
 	Table *table = NULL;
-	table = reinterpret_cast<Table *>(sqlite3DbMallocZero(db, sizeof(Table)));
+	table = reinterpret_cast<Table *>(sqlite3DbMallocZero(db, malloc_size(sizeof(Table))));
 	if (db->mallocFailed) {
 		say_debug("%s(): error while allocating memory for table\n", __func_name);
 		return NULL;
@@ -693,9 +711,7 @@ Table *get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db, Schema *pSchema
 	data = box_tuple_field(tpl, 6);
 	uint32_t len = mp_decode_array(&data);
 
-	Column *cols = NULL;
 	int nCol = 0;
-
 	for (uint32_t i = 0; i < len; ++i) {
 		uint32_t map_size = mp_decode_map(&data);
 		MValue colname, coltype;
@@ -730,44 +746,46 @@ Table *get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db, Schema *pSchema
 		}
 		char c = coltype.GetStr()[0];
 		const char *sql_type;
-		int affinity;
 		switch(c) {
 			case 'n': case 'N': {
 				sql_type = "REAL";
-				affinity = SQLITE_AFF_REAL;
 				break;
 			}
 			case 's': case 'S': {
 				sql_type = "TEXT";
-				affinity = SQLITE_AFF_TEXT;
 				break;
 			}
 			default: {
 				sql_type = "BLOB";
-				affinity = SQLITE_AFF_BLOB;
 				break;
 			}
 		}
-		if (nCol) {
-			cols = reinterpret_cast<Column *>(sqlite3DbRealloc(db, cols, (nCol + 1) * sizeof(Column)));
-			memset(cols + nCol, 0, sizeof(Column));
-		} else {
-			cols = reinterpret_cast<Column *>(sqlite3DbMallocZero(db, sizeof(Column)));
-		}
+		size_t len;
+		char zName[256];
+		memset(zName, 0, sizeof(zName));
+		colname.GetStr(&len);
+		memcpy(zName, colname.GetStr(), len);
+
+		Parse p;
+		Token t;
+		memset(&p, 0, sizeof(p));
+		memset(&t, 0, sizeof(t));
+		p.db = db;
+		p.pNewTable = table;
+		t.z = zName;
+		t.n = len;
+		sqlite3AddColumn(&p, &t);
 		if (db->mallocFailed) {
 			say_debug("%s(): malloc failed while allocating memory for new table, size = %d\n", __func_name, nCol);
 			sqlite3DbFree(db, table);
 			return NULL;
 		}
-		Column *cur = cols + nCol;
-		nCol++;
-		size_t len;
-		cur->zName = sqlite3DbStrNDup(db, colname.GetStr(&len), len);
+		t.z = sql_type;
+		t.n= strlen(sql_type);
+		sqlite3AddColumnType(&p, &t);
+		Column *cur = &(table->aCol[table->nCol - 1]);
 		cur->zType = sqlite3DbStrDup(db, sql_type);
-		cur->affinity = affinity;
 	}
-	table->aCol = cols;
-	table->nCol = nCol;
 	table->nRef = 1;
 	table->nRowLogEst = box_index_len(tbl_id.GetUint64(), 0);
 	table->szTabRow = ESTIMATED_ROW_SIZE;
@@ -812,15 +830,9 @@ SIndex *get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *t
 	}
 
 	SIndex *index = NULL;
-	index = reinterpret_cast<SIndex *>(sqlite3DbMallocZero(db, sizeof(SIndex)));
-	if (db->mallocFailed) {
-		say_debug("%s(): error while allocating memory for index\n", __func_name);
-		return NULL;
-	}
-	index->pTable = table;
-	index->pSchema = table->pSchema;
-	index->isCovering = 1;
-	index->noSkipScan = 1;
+	char *extra = NULL;
+	int extra_sz = 0;
+	char zName[256];
 
 	//---- INDEX ID ----
 
@@ -831,12 +843,6 @@ SIndex *get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *t
 		say_debug("%s(): field[1] in tuple in INDEX must be uint, but is %d\n", __func_name, type);
 		return NULL;
 	}
-	if (index_id.GetUint64()) {
-		index->idxType = 0;
-	} else {
-		index->idxType = 2;
-	}
-	index->tnum = make_index_id(space_id.GetUint64(), index_id.GetUint64());
 
 	//---- INDEX NAME ----
 
@@ -846,30 +852,52 @@ SIndex *get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *t
 		say_debug("%s(): field[2] in tuple in INDEX must be string, but is %d\n", __func_name, type);
 		return NULL;
 	} else {
-		char zName[256];
 		memset(zName, 0, 256);
 		size_t len = 0;
 		MValue buf = MValue::FromMSGPuck(&data);
 		buf.GetStr(&len);
 		sprintf(zName, "%d_%d_", (int)space_id.GetUint64(), (int)index_id.GetUint64());
 		memcpy(zName + strlen(zName), buf.GetStr(), len);
-		index->zName = sqlite3DbStrDup(db, zName);
-		if (db->mallocFailed) {
-			say_debug("%s(): error while allocating memory for index name, = %s\n", __func_name, buf.GetStr());
-			return NULL;
-		}
+		extra_sz += strlen(zName) + 1;
 	}
+
+	index = sqlite3AllocateIndexObject(db, table->nCol, extra_sz, &extra);
+	if (db->mallocFailed) {
+		say_debug("%s(): error while allocating memory for index\n", __func_name);
+		return NULL;
+	}
+	index->pTable = table;
+	index->pSchema = table->pSchema;
+	index->isCovering = 1;
+	index->noSkipScan = 1;
+	if (index_id.GetUint64()) {
+		index->idxType = 0;
+	} else {
+		index->idxType = 2;
+	}
+	index->tnum = make_index_id(space_id.GetUint64(), index_id.GetUint64());
+	index->zName = extra;
+	{
+		int len = strlen(zName);
+		memcpy(index->zName, zName, len);
+		index->zName[len] = 0;
+	}
+	//index->zName = sqlite3DbStrDup(db, zName);
+	// if (db->mallocFailed) {
+	// 	say_debug("%s(): error while allocating memory for index name, = %s\n", __func_name, buf.GetStr());
+	// 	return NULL;
+	// }
 
 	//---- SORT ORDER ----
 
-	index->aSortOrder = reinterpret_cast<u8 *>(sqlite3DbMallocZero(db, sizeof(u8)));
+	//index->aSortOrder = reinterpret_cast<u8 *>(sqlite3DbMallocZero(db, sizeof(u8)));
 	index->aSortOrder[0] = 0;
 	index->szIdxRow = ESTIMATED_ROW_SIZE;
 	index->nColumn = table->nCol;
 	index->onError = OE_Abort;
-	index->azColl = reinterpret_cast<char **>(sqlite3DbMallocZero(db, sizeof(char *) * table->nCol));
+	//index->azColl = reinterpret_cast<char **>(sqlite3DbMallocZero(db, sizeof(char *) * table->nCol));
 	for (uint32_t j = 0; j < table->nCol; ++j) {
-		index->azColl[j] = reinterpret_cast<char *>(sqlite3DbMallocZero(db, sizeof(char) * (strlen("BINARY") + 1)));
+		index->azColl[j] = reinterpret_cast<char *>(sqlite3DbMallocZero(db, malloc_size(sizeof(char) * (strlen("BINARY") + 1))));
 		memcpy(index->azColl[j], "BINARY", strlen("BINARY"));
 	}
 
@@ -926,7 +954,7 @@ SIndex *get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *t
 		say_debug("%s(): field[5] in INDEX must be array, but type is %d\n", __func_name, idx_cols.GetType());
 		return NULL;
 	}
-	index->aiColumn = reinterpret_cast<i16 *>(sqlite3DbMallocZero(db, sizeof(i16) * table->nCol));
+	//index->aiColumn = reinterpret_cast<i16 *>(sqlite3DbMallocZero(db, sizeof(i16) * table->nCol));
 	index->nKeyCol = idx_cols.Size();
 	for (uint32_t j = 0, sz = idx_cols.Size(); j < sz; ++j) {
 		i16 num = idx_cols[j][0][0]->GetUint64();
@@ -944,7 +972,7 @@ SIndex *get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *t
 		index->aiColumn[start++] = j;
 	}
 
-	index->aiRowLogEst = reinterpret_cast<LogEst *>(sqlite3DbMallocZero(db, sizeof(LogEst) * index->nKeyCol));
+	//index->aiRowLogEst = reinterpret_cast<LogEst *>(sqlite3DbMallocZero(db, sizeof(LogEst) * index->nKeyCol));
 	for (int i = 0; i < index->nKeyCol; ++i) index->aiRowLogEst[i] = table->nRowLogEst;
 
 	ok = true;

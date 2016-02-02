@@ -31,14 +31,21 @@
  * SUCH DAMAGE.
  */
 
+#ifdef __cplusplus
 extern "C" {
+#endif
+
 #include <stdint.h>
 #include <inttypes.h>
+#include "sqlite3.h"
 
 #define ESTIMATED_ROW_SIZE 100
+#define malloc_size(sz) (sz / 8 + 1) * 8
 
 void box_lua_sqlite_init(struct lua_State *L);
 
+#ifdef __cplusplus
 }
+#endif
 
 #endif

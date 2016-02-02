@@ -35,6 +35,7 @@ extern "C" {
 #include "sqlite3.h"
 #include "sqliteInt.h"
 #include "vdbeInt.h"
+#include "sql.h"
 #include <string.h>
 }
 
