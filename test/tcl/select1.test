@@ -1,0 +1,12 @@
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+
+do_test select1-0.1 {
+  execsql {SELECT * from tst_space2}
+} {1.0 2.0 3.0}
+
+do_test select1-0.2 {
+  execsql {SELECT id from tst_space2}
+} {1.0 2.0 3.0}
+
+finish_test
