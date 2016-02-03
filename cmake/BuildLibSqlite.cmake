@@ -6,7 +6,7 @@ macro(trnsqlite_build)
     file(MAKE_DIRECTORY ${SQLITE_BUILD_DIRECTORY}) 
     
     # configure sqlite
-    execute_process(COMMAND ${SQLITE_BUILD_DIRECTORY}/../configure
+    execute_process(COMMAND ${SQLITE_BUILD_DIRECTORY}/../configure§
                     WORKING_DIRECTORY ${SQLITE_BUILD_DIRECTORY})
     
     # That step is nessesery because make prepare source files.
