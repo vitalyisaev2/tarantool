@@ -32,7 +32,7 @@
  * SUCH DAMAGE.
  */
 
- #include "box/index.h"
+#include "box/index.h"
 
 class MValue {
 private:
