@@ -334,7 +334,7 @@ bool TarantoolCursor::make_btree_key_from_tuple() {
 	}
 
 	header_size = CalculateHeaderSize(header_size);
-	data = sqlite3DbMallocZero(db, malloc_size(header_size + data_size));
+	data = sqlite3DbMallocZero(db, header_size + data_size);
 	int offset = 0;
 	offset += sqlite3PutVarint((unsigned char *)data + offset, header_size);
 	for (int i = 0; i < cnt; ++i) {
@@ -521,7 +521,7 @@ TarantoolCursor &TarantoolCursor::operator=(const TarantoolCursor &ob) {
 	sql_index = ob.sql_index;
 	if (ob.size) {
 		size = ob.size;
-		data = sqlite3DbMallocZero(db, malloc_size(size));
+		data = sqlite3DbMallocZero(db, size);
 		memcpy(data, ob.data, size);
 	}
 	return *this;
