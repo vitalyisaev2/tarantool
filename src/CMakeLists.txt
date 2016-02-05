@@ -120,6 +120,7 @@ set (server_sources
      ${PROJECT_SOURCE_DIR}/third_party/lua-yaml/b64.c
      ${PROJECT_SOURCE_DIR}/third_party/lua-cjson/lua_cjson.c
      ${PROJECT_SOURCE_DIR}/third_party/lua-cjson/strbuf.c
+     ${PROJECT_SOURCE_DIR}/src/lib/msgpuck/mpstream.c
 )
 
 set(api_headers

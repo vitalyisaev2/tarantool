@@ -176,7 +176,6 @@ luaL_setcdatagc(struct lua_State *L, int idx)
 	lua_pop(L, 1);
 }
 
-
 #define OPTION(type, name, defvalue) { #name, \
 	offsetof(struct luaL_serializer, name), type, defvalue}
 /**
