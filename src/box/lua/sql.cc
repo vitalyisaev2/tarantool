@@ -58,56 +58,78 @@ extern "C" {
 
 static const char *sqlitelib_name = "sqlite";
 
+/**
+ * Structure for linking BtCursor (sqlite) with
+ * his tarantool backend - TarantoolCursor
+ */
 struct TrntlCursor {
 	BtCursor *brother; /* BtCursor for TarantoolCursor */
 	TarantoolCursor cursor;
-	char *key;
+	char *key; /* Key for creating box_index_iterator */
 };
 
+/**
+ * Structure that contains objects needed by API functions.
+ * API see below.
+ */
 typedef struct sql_trntl_self {
-	TrntlCursor **cursors;
-	int cnt_cursors;
-	SIndex **indices;
-	int cnt_indices;
+	TrntlCursor **cursors; /* All cursors, opened now */
+	int cnt_cursors; /* Size of cursors array */
+	SIndex **indices; /* All tarantool indices */
+	int cnt_indices; /* Size of indices */
 } sql_trntl_self;
 
 extern "C" {
-sqlite3 *global_db = NULL;
+
+//~~~~~~~~~~~~~~~~~~~~~~~~ G L O B A L   O P E R A T I O N S ~~~~~~~~~~~~~~~~~~~~~~~~
+
+sqlite3 *global_db = NULL; /* Global descriptor for sqlite connection */
 
 sqlite3 *get_global_db() { return global_db; }
 
 void set_global_db(sqlite3 *db) { global_db = db; }
 
-void sql_tarantool_api_init(sql_tarantool_api *ob);
+/**
+ * Constructor for sql_tarantool_api structure.
+ */
+void
+sql_tarantool_api_init(sql_tarantool_api *ob);
 
-Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema, Hash *idxHash_);
+/**
+ * Function for joining sqlite schema and tarantool schema.
+ */
+void
+get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg,
+	Schema *pSchema, Hash *idxHash, Hash *tblHash);
 
-int trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
-                              struct KeyInfo *pKeyInfo, BtCursor *pCur);
+/**
+ * Check if number of root page - num - is container for
+ * tarantool space and index numbers.
+ */
+char
+check_num_on_tarantool_id(void *self, u32 num);
 
-int trntl_cursor_first(void *self_, BtCursor *pCur, int *pRes);
+/**
+ * This function converts space from msgpuck tuple to
+ * sqlite3 Table structure.
+ */
+Table *
+get_trntl_table_from_tuple(box_tuple_t *tpl,sqlite3 *db,
+	Schema *pSchema);
 
-int trntl_cursor_data_size(void *self_, BtCursor *pCur, u32 *pSize);
+/**
+ * This function converts index from msgpuck tuple to
+ * sqlite3 SIndex structure.
+ */
+SIndex *
+get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db,
+	Table *table, bool &ok);
 
-const void *trntl_cursor_data_fetch(void *self_, BtCursor *pCur, u32 *pAmt);
-
-int trntl_cursor_key_size(void *self, BtCursor *pCur, i64 *pSize);
- 
-const void *trntl_cursor_key_fetch(void *self, BtCursor *pCur, u32 *pAmt);
-
-int trntl_cursor_next(void *self, BtCursor *pCur, int *pRes);
-
-int trntl_cursor_close(void *self, BtCursor *pCur);
-
-char check_num_on_tarantool_id(void *self, u32 num);
-
-int trntl_cursor_move_to_unpacked(void *self, BtCursor *pCur, UnpackedRecord *pIdxKey, i64 intKey, int biasRight, int *pRes, RecordCompare xRecordCompare);
-
-Table *get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db, Schema *pSchema);
-
-SIndex *get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bool &ok);
-
-u32 make_index_id(u32 space_id, u32 index_number) {
+/**
+ * Create fictive root page number from space_id and index_number.
+ */
+u32
+make_index_id(u32 space_id, u32 index_number) {
 	u32 res = 0;
 	u32 first = 1 << 30;
 	u32 second = (index_number << 28) >> 2;
@@ -116,18 +138,143 @@ u32 make_index_id(u32 space_id, u32 index_number) {
 	return res;
 }
 
-u32 make_space_id(u32 space_id) {
+/**
+ * Create fictive root page number from space_id. Index id in that
+ * case is 15.
+ */
+u32
+make_space_id(u32 space_id) {
 	return make_index_id(space_id, 15);
 }
 
-u32 get_space_id_from(u32 num) {
+/**
+ * Get space id from root page number.
+ */
+u32
+get_space_id_from(u32 num) {
 	return (num << 6) >> 15;
 }
 
-u32 get_index_id_from(u32 num) {
+/**
+ * Get index id from root page number.
+ */
+u32
+get_index_id_from(u32 num) {
 	return (num << 2) >> 28;
 }
 
+/**
+ * Function for adding new SIndex to array of all indices in global self.
+ */
+void
+add_new_index_to_self(sql_trntl_self *self, SIndex *new_index);
+
+/**
+ * Function for removing old SIndex from array of all indices in global self.
+ */
+void
+remove_old_index_from_self(sql_trntl_self *self, SIndex *olf_index);
+
+//~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   C U R S O R   A P I ~~~~~~~~~~~~~~~~~~~~~~~~
+
+/**
+ * Constructor for TarantoolCursor inside pCur. Cursor will be
+ * opened on index specified in iTable.
+ *
+ * @param self_ Pointer to sql_trntl_self object.
+ * @param iTable Sqlite3 root page number for opening cursor
+ * 		,but in tarantool it is used for containing
+ * 		index and space id.
+ * @param pCur Sqlite3 cursor that will send all operations
+ * 		to its TarantoolCursor.
+ * return SQLITE_OK if success.
+ */
+int
+trntl_cursor_create(void *self_, Btree *p, int iTable,
+	int wrFlag, struct KeyInfo *pKeyInfo, BtCursor *pCur);
+
+/**
+ * Move TarantoolCursor in pCur on first record in index.
+ *
+ * @param pRes Set pRes to 1 if space is empty.
+ * return SQLITE_OK if success.
+ */
+int
+trntl_cursor_first(void *self_, BtCursor *pCur, int *pRes);
+
+/**
+ * Size of data in current record in bytes.
+ *
+ * @param pSize In that parameter actual size will be saved.
+ * returns always SQLITE_OK
+ */
+int
+trntl_cursor_data_size(void *self_, BtCursor *pCur, u32 *pSize);
+
+/**
+ * Get data of current record in sqlite3 btree cell format.
+ *
+ * @param pAmt Actual size of data will be saved here.
+ * returns pointer to record in sqlite btree cell format.
+ */
+const void *
+trntl_cursor_data_fetch(void *self_, BtCursor *pCur, u32 *pAmt);
+
+/**
+ * Same as trntl_cursor_data_size - for compatibility with
+ * sqlite.
+ */
+int
+trntl_cursor_key_size(void *self, BtCursor *pCur, i64 *pSize);
+ 
+/**
+ * Same as trntl_cursor_data_fetch - for compatibility with
+ * sqlite.
+ */
+const void *
+trntl_cursor_key_fetch(void *self, BtCursor *pCur, u32 *pAmt);
+
+/**
+ * Move TarantoolCursor in pCur on next record in index.
+ *
+ * @param pRes This will be set to 0 if success and 1 if current record
+ * 		already if last in index.
+ * returns SQLITE_OK if success
+ */
+int
+trntl_cursor_next(void *self, BtCursor *pCur, int *pRes);
+
+/**
+ * Remove TarantoolCursor from global array of opened cursors and
+ * release resources of BtCursor.
+ */
+void
+remove_cursor_from_global(sql_trntl_self *self, BtCursor *cursor);
+
+/**
+ * Destructor for TarantoolCursor in pCur. Also removes
+ * this cursor from global sql_trntl_self.
+ */
+int
+trntl_cursor_close(void *self, BtCursor *pCur);
+
+/**
+ * Move TarantoolCursor in pCur to first record that <= than pIdxKey -
+ * unpacked sqlite btree cell with some data.
+ *
+ * @param pIdxKey Structure that contains data in sqlite btree cell
+ * 		format and to that index must be moved.
+ * @param intKey Contains key if it is integer.
+ * @param pRes Here results will be stored. If *pRes < 0 then
+ * 		current record either is smaller than pIdxKey/intKey or
+ *		index is empty. If *pRes == 0 then pIdxKey/intKey equal to
+ *		current record. If *pRes > 0 then current record is bigger than
+ *		pIdxKey/intKey.
+ */
+int
+trntl_cursor_move_to_unpacked(void *self, BtCursor *pCur,
+	UnpackedRecord *pIdxKey, i64 intKey, int biasRight, int *pRes,
+	RecordCompare xRecordCompare);
 }
 
 /**
@@ -189,7 +336,13 @@ sql_callback(void *data, int cols, char **values, char **names) {
 	return 0;
 }
 
-void on_commit_space(struct trigger * /*trigger*/, void * event) {
+/**
+ * Calls every time when _space is updated and this
+ * changes are commited. It applies commited changes to
+ * sqlite schema.
+ */
+void
+on_commit_space(struct trigger * /*trigger*/, void * event) {
 	static const char *__func_name = "on_commit_space";
 	say_debug("%s():\n", __func_name);
 	struct txn *txn = (struct txn *) event;
@@ -224,7 +377,13 @@ void on_commit_space(struct trigger * /*trigger*/, void * event) {
 	}
 }
 
-void on_replace_space(struct trigger * /*trigger*/, void * event) {
+/**
+ * Call every time when _space is modified. This function
+ * doesn't do any updates but creating new trigger on commiting
+ * this _space updates.
+ */
+void
+on_replace_space(struct trigger * /*trigger*/, void * event) {
 	static const char *__func_name = "on_replace_space";
 	say_debug("%s():\n", __func_name);
 	struct trigger *on_commit = (struct trigger *) region_alloc0(&fiber()->gc, sizeof(struct trigger));
@@ -235,7 +394,13 @@ void on_replace_space(struct trigger * /*trigger*/, void * event) {
 	trigger_add(&txn->on_commit, on_commit);
 }
 
-void on_commit_index(struct trigger * /*trigger*/, void * event) {
+/**
+ * Calls every time when _index is updated and this
+ * changes are commited. It applies commited changes to
+ * sqlite schema.
+ */
+void
+on_commit_index(struct trigger * /*trigger*/, void * event) {
 	static const char *__func_name = "on_commit_index";
 	say_debug("%s():\n", __func_name);
 	struct txn *txn = (struct txn *) event;
@@ -243,9 +408,8 @@ void on_commit_index(struct trigger * /*trigger*/, void * event) {
 	struct tuple *old_tuple = stmt->old_tuple;
 	struct tuple *new_tuple = stmt->new_tuple;
 	sqlite3 *db = global_db;
-	// Hash *tblHash = &db->aDb[0].pSchema->tblHash;
 	Hash *idxHash = &db->aDb[0].pSchema->idxHash;
-	// Schema *pSchema = db->aDb[0].pSchema;
+	sql_trntl_self *self = (sql_trntl_self *)db->trn_api.self;
 	if (old_tuple != NULL) {
 		say_debug("%s(): old_tuple != NULL\n", __func_name);
 		bool ok;
@@ -272,13 +436,13 @@ void on_commit_index(struct trigger * /*trigger*/, void * event) {
 				break;
 			}
 		}
+		remove_old_index_from_self(self, cur);
+		sqlite3DbFree(db, index);
 		if (!ok) {
 			say_debug("%s(): index was not found in sql schema\n", __func_name);
-			sqlite3DbFree(db, index);
 			return;
 		}
 		sqlite3HashInsert(idxHash, cur->zName, NULL);
-		sqlite3DbFree(db, index);
 		sqlite3DbFree(db, cur);
 	}
 	if (new_tuple != NULL) {
@@ -293,10 +457,17 @@ void on_commit_index(struct trigger * /*trigger*/, void * event) {
 		index->pNext = table->pIndex;
 		table->pIndex = index;
 		sqlite3HashInsert(idxHash, index->zName, index);
+		add_new_index_to_self(self, index);
 	}
 }
 
-void on_replace_index(struct trigger * /*trigger*/, void * event) {
+/**
+ * Call every time when _index is modified. This function
+ * doesn't do any updates but creating new trigger on commiting
+ * this _index updates.
+ */
+void
+on_replace_index(struct trigger * /*trigger*/, void * event) {
 	static const char *__func_name = "on_replace_index";
 	say_debug("%s():\n", __func_name);
 	struct trigger *on_commit = (struct trigger *) region_alloc0(&fiber()->gc, sizeof(struct trigger));
@@ -307,12 +478,25 @@ void on_replace_index(struct trigger * /*trigger*/, void * event) {
 	trigger_add(&txn->on_commit, on_commit);
 }
 
-void prepare_to_open_db() {
+/**
+ * Set global sql_tarantool_api and ready flag.
+ * When sqlite will make initialization this flag
+ * will be used for detection if global sql_tarantool_api is
+ * initialized. And when flag is set then any sqlite3 object
+ * will save this API object to self.
+ */
+void
+prepare_to_open_db() {
 	sql_tarantool_api_init(&global_trn_api);
 	global_trn_api_is_ready = 1;
 }
 
-void connect_triggers() {
+/**
+ * Connect triggers on creating, dropping or updating spaces and indices.
+*/
+void
+connect_triggers() {
+	/* _space */
 	struct space *space = space_cache_find(BOX_SPACE_ID);
 	struct trigger *alter_space_on_replace_space = (struct trigger *)malloc(sizeof(struct trigger));
 	memset(alter_space_on_replace_space, 0, sizeof(struct trigger));
@@ -321,6 +505,7 @@ void connect_triggers() {
 	};
 	rlist_add_tail_entry(&space->on_replace, alter_space_on_replace_space, link);
 
+	/* _index */
 	space = space_cache_find(BOX_INDEX_ID);
 	struct trigger *alter_space_on_replace_index = (struct trigger *)malloc(sizeof(struct trigger));
 	memset(alter_space_on_replace_index, 0, sizeof(struct trigger));
@@ -330,7 +515,12 @@ void connect_triggers() {
 	rlist_add_tail_entry(&space->on_replace, alter_space_on_replace_index, link);
 }
 
-int make_connect_sqlite_db(const char *db_name, struct sqlite3 **db) {
+/**
+ * Create connection to sqlite with preparing sql_tarantool_api and
+ * with triggers connection.
+ */
+int
+make_connect_sqlite_db(const char *db_name, struct sqlite3 **db) {
 	prepare_to_open_db();
 	int rc = sqlite3_open(db_name, db);
 	if (rc != SQLITE_OK) {
@@ -348,7 +538,6 @@ int make_connect_sqlite_db(const char *db_name, struct sqlite3 **db) {
  * Params needed on stack:
  * - (char *) - name of database
 */
-
 static int
 lua_sql_connect(struct lua_State *L)
 {
@@ -418,6 +607,10 @@ lua_sqlite_pushresult(struct lua_State *L, sql_result res)
 	return 1;
 }
 
+/**
+ * Close connection to sqlite - release all allocated memory
+ * and close all opened files.
+ */
 static int
 lua_sqlite_close(struct lua_State *L)
 {
@@ -485,184 +678,127 @@ box_lua_sqlite_init(struct lua_State *L)
 
 extern "C" {
 
-int trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
-                              struct KeyInfo *pKeyInfo, BtCursor *pCur) {
-	static const char *__func_name = "trntl_cursor_create";
-	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
+//~~~~~~~~~~~~~~~~~~~~~~~~ G L O B A L   O P E R A T I O N S ~~~~~~~~~~~~~~~~~~~~~~~~
 
-	for (int i = 0; i < self->cnt_cursors; ++i) {
-		if (self->cursors[i]->brother == pCur) {
-			say_debug("%s(): trying to reinit existing cursor\n", __func_name);
-			return SQLITE_ERROR;
-		}
+void
+sql_tarantool_api_init(sql_tarantool_api *ob) {
+	ob->get_trntl_spaces = &get_trntl_spaces;
+	sql_trntl_self *self = new sql_trntl_self;
+	ob->self = self;
+	self->cursors = NULL;
+	self->cnt_cursors = 0;
+	self->indices = NULL;
+	self->cnt_indices = 0;
+	ob->trntl_cursor_create = trntl_cursor_create;
+	ob->trntl_cursor_first = trntl_cursor_first;
+	ob->trntl_cursor_data_size = trntl_cursor_data_size;
+	ob->trntl_cursor_data_fetch = trntl_cursor_data_fetch;
+	ob->trntl_cursor_next = trntl_cursor_next;
+	ob->trntl_cursor_close = trntl_cursor_close;
+	ob->check_num_on_tarantool_id = check_num_on_tarantool_id;
+	ob->trntl_cursor_move_to_unpacked = trntl_cursor_move_to_unpacked;
+	ob->trntl_cursor_key_size = trntl_cursor_key_size;
+	ob->trntl_cursor_key_fetch = trntl_cursor_key_fetch;
+}
+
+void
+get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema,
+	Hash *idxHash, Hash *tblHash) {
+	static const char *__func_name = "get_trntl_spaces";
+	(void)idxHash;
+	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
+	say_debug("%s(): self = %d, db = %d\n", __func_name, (int)(self != NULL), (int)(db != NULL));
+	if (__func_name == NULL) {
+		sqlite3SetString(pzErrMsg, db, "__func_name == NULL");
 	}
-	u32 num;
-	memcpy(&num, &iTable, sizeof(u32));
-	TrntlCursor *c = new TrntlCursor();
-	c->key = new char[2];
-	char *key_end = mp_encode_array(c->key, 0);
-	int index_id = 0;
-	int type = ITER_ALL;
-	int space_id = get_space_id_from(num);
-	index_id = get_index_id_from(num) % 15;
-	u32 tnum = make_index_id(space_id, index_id);
-	SIndex *sql_index = NULL;
-	for (int i = 0; i < self->cnt_indices; ++i) {
-		if (self->indices[i]->tnum == tnum) {
-			sql_index = self->indices[i];
+
+	char key[2], *key_end = mp_encode_array(key, 0);
+	box_iterator_t *it = box_index_iterator(BOX_SPACE_ID, 0, ITER_ALL, key, key_end);
+	box_tuple_t *tpl = NULL;
+	box_txn_begin();
+
+	while(1) {
+		if (box_iterator_next(it, &tpl)) {
+			say_debug("%s(): box_iterator_next return not 0\n", __func_name);
+			goto __get_trntl_spaces_end_bad;
+		}
+		if (!tpl) {
 			break;
 		}
-	}
-	if (sql_index == NULL) {
-		say_debug("%s(): sql_index not found, space_id = %d, index_id = %d\n", __func_name, space_id, index_id);
-		delete[] c;
-		delete[] c->key;
-		return SQLITE_ERROR;
-	}
-	c->cursor = TarantoolCursor(p->db, space_id, index_id, type, c->key, key_end, sql_index);
-	c->brother = pCur;
-	pCur->trntl_cursor = (void *)c;
-	pCur->pBtree = p;
-	pCur->pBt = p->pBt;
-	memcpy(&pCur->pgnoRoot, &iTable, sizeof(Pgno));
-	pCur->iPage = -1;
-	pCur->curFlags = wrFlag;
-	pCur->pKeyInfo = pKeyInfo;
-	pCur->eState = CURSOR_VALID;
-	if (self->cnt_cursors == 0) {
-		self->cursors = new TrntlCursor*[1];
-	} else {
-		TrntlCursor **tmp = new TrntlCursor*[self->cnt_cursors + 1];
-		memcpy(tmp, self->cursors, sizeof(TrntlCursor *) * self->cnt_cursors);
-		delete[] self->cursors;
-		self->cursors = tmp;
-	}
-	self->cursors[self->cnt_cursors++] = c;
-	return SQLITE_OK;
-}
+		Table *table = get_trntl_table_from_tuple(tpl, db, pSchema);
+		if (table == NULL) return;
 
-int trntl_cursor_close(void *self_, BtCursor *pCur) {
-	static const char *__func_name = "trntl_cursor_first";
-	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
-	if (!self) {
-		say_debug("%s(): self must not be NULL\n", __func_name);
-		return SQLITE_ERROR;
-	}
-	//BtShared *pBt = pCur->pBt;
-	TrntlCursor *c = (TrntlCursor *)pCur->trntl_cursor;
-	delete[] c->key;
-	TrntlCursor **new_cursors = new TrntlCursor*[self->cnt_cursors - 1];
-	for (int i = 0, j = 0; i < self->cnt_cursors; ++i) {
-		if (self->cursors[i]->brother != pCur) {
-			new_cursors[j++] = self->cursors[i];
+		//----Indices----
+
+		box_iterator_t *index_it = box_index_iterator(BOX_INDEX_ID, 0, ITER_ALL, key, key_end);
+		box_tuple_t *index_tpl = NULL;
+		while(1) {
+			MValue key, value, idx_cols, index_id, space_id;
+			SIndex *index = NULL;
+
+			if (box_iterator_next(index_it, &index_tpl)) {
+				say_debug("%s(): box_iterator_next return not 0 for next index\n", __func_name);
+				goto __get_trntl_spaces_index_bad;
+			}
+			if (!index_tpl) {
+				break;
+			}
+			
+			bool ok;
+			index = get_trntl_index_from_tuple(index_tpl, db, table, ok);
+			if (index == NULL) {
+				if (ok) continue;
+				say_debug("%s(): error while getting index from tuple\n", __func_name);
+				return;
+			}
+
+			sqlite3HashInsert(idxHash, index->zName, index);
+			if (table->pIndex) {
+				index->pNext = table->pIndex;
+			}
+			table->pIndex = index;
+
+			add_new_index_to_self(self, index);
+
+			continue;
+__get_trntl_spaces_index_bad:
+			box_iterator_free(index_it);
+			sqlite3DbFree(db, table);
+			if (index->aSortOrder) sqlite3DbFree(db, index->aSortOrder);
+			if (index->aiColumn) sqlite3DbFree(db, index->aiColumn);
+			if (index->azColl) {
+				for (uint32_t j = 0; j < index->nColumn; ++j) {
+					sqlite3DbFree(db, index->azColl[j]);
+				}
+				sqlite3DbFree(db, index->azColl);
+			}
+			if (index) sqlite3DbFree(db, index);
+			goto __get_trntl_spaces_end_bad;
 		}
+		box_iterator_free(index_it);
+
+		sqlite3HashInsert(tblHash, table->zName, table);
 	}
-	delete[] self->cursors;
-	self->cnt_cursors--;
-	self->cursors = new TrntlCursor*[self->cnt_cursors];
-	memcpy(self->cursors, new_cursors, sizeof(TrntlCursor *) * (self->cnt_cursors));
-	delete c;
-	sqlite3_free(pCur->pKey);
-  	pCur->pKey = 0;
-  	pCur->eState = CURSOR_INVALID;
-	//unlockBtreeIfUnused(pBt);
-	return SQLITE_OK;
+
+	box_iterator_free(it);
+	box_txn_commit();
+	return;
+__get_trntl_spaces_end_bad:
+	box_txn_rollback();
+	box_iterator_free(it);
+	return;
 }
 
-int trntl_cursor_move_to_unpacked(void *self_, BtCursor *pCur, UnpackedRecord *pIdxKey, i64 intKey, int biasRight, int *pRes, RecordCompare xRecordCompare) {
-	static const char *__func_name = "trntl_cursor_move_to_unpacked";
-	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
-	if (!self) {
-		say_debug("%s(): self must not be NULL\n", __func_name);
-		return SQLITE_ERROR;
-	}
-	if ((biasRight != 0) && (biasRight != 1)) {
-		say_debug("%s(): biasRight must be 1 or 0, but equal %d\n", __func_name, biasRight);
-		return SQLITE_ERROR;
-	}
-	TrntlCursor *c = (TrntlCursor *)pCur->trntl_cursor;
-	return c->cursor.MoveToUnpacked(pIdxKey, intKey, pRes, xRecordCompare);
-}
-
-int trntl_cursor_first(void *self_, BtCursor *pCur, int *pRes) {
-	static const char *__func_name = "trntl_cursor_first";
-	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
-	if (!self) {
-		say_debug("%s(): self must not be NULL\n", __func_name);
-		return SQLITE_ERROR;
-	}
-	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
-	return c->cursor.MoveToFirst(pRes);
-}
-
-int trntl_cursor_data_size(void *self_, BtCursor *pCur, u32 *pSize) {
-	static const char *__func_name = "trntl_cursor_data_size";
-	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
-	if (!self) {
-		say_debug("%s(): self must not be NULL\n", __func_name);
-		return SQLITE_ERROR;
-	}
-	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
-	return c->cursor.DataSize(pSize);
-}
-
-const void *trntl_cursor_data_fetch(void *self_, BtCursor *pCur, u32 *pAmt) {
-	static const char *__func_name = "trntl_cursor_data_fetch";
-	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
-	if (!self) {
-		say_debug("%s(): self must not be NULL\n", __func_name);
-		return NULL;
-	}
-	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
-	return c->cursor.DataFetch(pAmt);
-}
-
-int trntl_cursor_key_size(void *self_, BtCursor *pCur, i64 *pSize) {
-	static const char *__func_name = "trntl_cursor_key_size";
-	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
-	if (!self) {
-		say_debug("%s(): self must not be NULL\n", __func_name);
-		return SQLITE_ERROR;
-	}
-	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
-	return c->cursor.KeySize(pSize);
-}
- 
-const void *trntl_cursor_key_fetch(void *self_, BtCursor *pCur, u32 *pAmt) {
-	static const char *__func_name = "trntl_cursor_key_fetch";
-	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
-	if (!self) {
-		say_debug("%s(): self must not be NULL\n", __func_name);
-		return NULL;
-	}
-	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
-	return c->cursor.KeyFetch(pAmt);
-}
-
-int trntl_cursor_next(void *self_, BtCursor *pCur, int *pRes) {
-	static const char *__func_name = "trntl_cursor_next";
-	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
-	if (!self) {
-		say_debug("%s(): self must not be NULL\n", __func_name);
-		return SQLITE_ERROR;
-	}
-	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
-	return c->cursor.Next(pRes);
-}
-
-char check_num_on_tarantool_id(void *self, u32 num) {
-	static const char *__func_name = "check_num_on_tarantool_id";
-	if (self == NULL) {
-		say_debug("%s(): self must not be NULL\n", __func_name);
-		return 0;
-	}
+char
+check_num_on_tarantool_id(void * /*self*/, u32 num) {
 	u32 buf;
 	buf = (num << 23) >> 23;
 	if (buf) return 0;
 	return !!(num & (1 << 30));
 }
 
-Table *get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db, Schema *pSchema) {
+Table *
+get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db, Schema *pSchema) {
 	static const char *__func_name = "get_trntl_table_from_tuple";
 
 	int cnt = box_tuple_field_count(tpl);
@@ -670,8 +806,47 @@ Table *get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db, Schema *pSchema
 		say_debug("%s(): box_tuple_field_count not equal 7, but %d\n", __func_name, cnt);
 		return NULL;
 	}
-	Table *table = NULL;
-	table = reinterpret_cast<Table *>(sqlite3DbMallocZero(db, malloc_size(sizeof(Table))));
+	sqlite3 *db_alloc = NULL;
+	Parse p;
+	Token name1, name2;
+	char zName[256];
+	memset(&p, 0, sizeof(p));
+	memset(&name1, 0, sizeof(name1));
+	memset(&name2, 0, sizeof(name2));
+	memset(zName, 0, sizeof(zName));
+
+	const char *data = box_tuple_field(tpl, 0);
+	int type = (int)mp_typeof(*data);
+	MValue tbl_id = MValue::FromMSGPuck(&data);
+	if (tbl_id.GetType() != MP_UINT) {
+		say_debug("%s(): field[0] in tuple in SPACE must be uint, but is %d\n", __func_name, type);
+		return NULL;
+	}
+
+	data = box_tuple_field(tpl, 2);
+	type = (int)mp_typeof(*data);
+	if (type != MP_STR) {
+		say_debug("%s(): field[2] in tuple in SPACE must be string, but is %d\n", __func_name, type);
+		return NULL;
+	} else {
+		size_t len;
+		MValue buf = MValue::FromMSGPuck(&data);
+		buf.GetStr(&len);
+		memcpy(zName, buf.GetStr(), len);
+	}
+
+	name1.z = zName;
+	name1.n = strlen(zName);
+	p.is_trntl_init = 1;
+	p.db = db_alloc;
+	sqlite3StartTable(&p, &name1, &name2, 0, 0, 0, 1);
+	if (p.nErr > 0) {
+		say_debug("%s(): error while allocating memory for table, %s\n", __func_name, zName);
+		return NULL;
+	}
+
+	Table *table = p.pNewTable;
+	table->tnum = make_space_id(tbl_id.GetUint64());
 	if (db->mallocFailed) {
 		say_debug("%s(): error while allocating memory for table\n", __func_name);
 		return NULL;
@@ -680,44 +855,20 @@ Table *get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db, Schema *pSchema
 	table->iPKey = -1;
 	table->tabFlags = TF_WithoutRowid | TF_HasPrimaryKey;
 
-	const char *data = box_tuple_field(tpl, 0);
-	int type = (int)mp_typeof(*data);
-	MValue tbl_id = MValue::FromMSGPuck(&data);
-	if (tbl_id.GetType() != MP_UINT) {
-		say_debug("%s(): field[0] in tuple in SPACE must be uint, but is %d\n", __func_name, type);
-		sqlite3DbFree(db, table);
-		return NULL;
-	}
-	table->tnum = make_space_id(tbl_id.GetUint64());
-
-	data = box_tuple_field(tpl, 2);
-	type = (int)mp_typeof(*data);
-	if (type != MP_STR) {
-		say_debug("%s(): field[2] in tuple in SPACE must be string, but is %d\n", __func_name, type);
-		sqlite3DbFree(db, table);
-		return NULL;
-	} else {
-		size_t len;
-		MValue buf = MValue::FromMSGPuck(&data);
-		table->zName = sqlite3DbStrNDup(db, buf.GetStr(&len), len);
-		if (db->mallocFailed) {
-			say_debug("%s(): error while allocating memory for table name, = %s\n", __func_name, buf.GetStr());
-			sqlite3DbFree(db, table);
-			return NULL;
-		}
-	}
-
 	//Get space format
 	data = box_tuple_field(tpl, 6);
+
 	uint32_t len = mp_decode_array(&data);
 
+	Column *cols = (Column *)sqlite3Malloc(len * sizeof(Column));
+	memset(cols, 0, sizeof(Column) * len);
 	int nCol = 0;
 	for (uint32_t i = 0; i < len; ++i) {
 		uint32_t map_size = mp_decode_map(&data);
 		MValue colname, coltype;
 		if (map_size != 2) {
 			say_debug("%s(): map_size not equal 2, but %u\n", __func_name, map_size);
-			sqlite3DbFree(db, table);
+			sqlite3DbFree(db_alloc, table);
 			return NULL;
 		}
 		for (uint32_t j = 0; j < map_size; ++j) {
@@ -725,7 +876,7 @@ Table *get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db, Schema *pSchema
 			MValue val = MValue::FromMSGPuck(&data);
 			if ((key.GetType() != MP_STR) || (val.GetType() != MP_STR)) {
 				say_debug("%s(): unexpected not string format\n", __func_name);
-				sqlite3DbFree(db, table);
+				sqlite3DbFree(db_alloc, table);
 				return NULL;
 			}
 			char c = key.GetStr()[0];
@@ -737,7 +888,7 @@ Table *get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db, Schema *pSchema
 				coltype = val;
 			} else {
 				say_debug("%s(): unknown string in space_format\n", __func_name);
-				sqlite3DbFree(db, table);
+				sqlite3DbFree(db_alloc, table);
 				return NULL;
 			}
 		}
@@ -746,54 +897,51 @@ Table *get_trntl_table_from_tuple(box_tuple_t *tpl, sqlite3 *db, Schema *pSchema
 		}
 		char c = coltype.GetStr()[0];
 		const char *sql_type;
+		int affinity;
 		switch(c) {
 			case 'n': case 'N': {
 				sql_type = "REAL";
+				affinity = SQLITE_AFF_REAL;
 				break;
 			}
 			case 's': case 'S': {
 				sql_type = "TEXT";
+				affinity = SQLITE_AFF_TEXT;
 				break;
 			}
 			default: {
 				sql_type = "BLOB";
+				affinity = SQLITE_AFF_BLOB;
 				break;
 			}
 		}
-		size_t len;
-		char zName[256];
-		memset(zName, 0, sizeof(zName));
-		colname.GetStr(&len);
-		memcpy(zName, colname.GetStr(), len);
-
-		Parse p;
-		Token t;
-		memset(&p, 0, sizeof(p));
-		memset(&t, 0, sizeof(t));
-		p.db = db;
-		p.pNewTable = table;
-		t.z = zName;
-		t.n = len;
-		sqlite3AddColumn(&p, &t);
-		if (db->mallocFailed) {
-			say_debug("%s(): malloc failed while allocating memory for new table, size = %d\n", __func_name, nCol);
-			sqlite3DbFree(db, table);
+		if (!cols) {
+			say_debug("%s(): malloc failed while allocating memory for columns\n", __func_name);
+			sqlite3DbFree(db_alloc, table);
 			return NULL;
 		}
-		t.z = sql_type;
-		t.n= strlen(sql_type);
-		sqlite3AddColumnType(&p, &t);
-		Column *cur = &(table->aCol[table->nCol - 1]);
-		cur->zType = sqlite3DbStrDup(db, sql_type);
+		Column *cur = cols + nCol++;
+		size_t len;
+		colname.GetStr(&len);
+		cur->zName = (char *)sqlite3Malloc(len + 1);
+		memset(cur->zName, 0, len + 1);
+		memcpy(cur->zName, colname.GetStr(), len);
+
+		len = strlen(sql_type);
+		cur->zType = (char *)sqlite3Malloc(len + 1);
+		memset(cur->zType, 0, len + 1);
+		memcpy(cur->zType, sql_type, len);
+		cur->affinity = affinity;
 	}
-	table->nRef = 1;
 	table->nRowLogEst = box_index_len(tbl_id.GetUint64(), 0);
 	table->szTabRow = ESTIMATED_ROW_SIZE;
-
+	table->aCol = cols;
+	table->nCol = nCol;
 	return table;
 }
 
-SIndex *get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bool &ok) {
+SIndex *
+get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *table, bool &ok) {
 	static const char *__func_name = "get_trntl_index_from_tuple";
 	ok = false;
 
@@ -882,22 +1030,15 @@ SIndex *get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *t
 		memcpy(index->zName, zName, len);
 		index->zName[len] = 0;
 	}
-	//index->zName = sqlite3DbStrDup(db, zName);
-	// if (db->mallocFailed) {
-	// 	say_debug("%s(): error while allocating memory for index name, = %s\n", __func_name, buf.GetStr());
-	// 	return NULL;
-	// }
 
 	//---- SORT ORDER ----
 
-	//index->aSortOrder = reinterpret_cast<u8 *>(sqlite3DbMallocZero(db, sizeof(u8)));
 	index->aSortOrder[0] = 0;
 	index->szIdxRow = ESTIMATED_ROW_SIZE;
 	index->nColumn = table->nCol;
 	index->onError = OE_Abort;
-	//index->azColl = reinterpret_cast<char **>(sqlite3DbMallocZero(db, sizeof(char *) * table->nCol));
 	for (uint32_t j = 0; j < table->nCol; ++j) {
-		index->azColl[j] = reinterpret_cast<char *>(sqlite3DbMallocZero(db, malloc_size(sizeof(char) * (strlen("BINARY") + 1))));
+		index->azColl[j] = reinterpret_cast<char *>(sqlite3DbMallocZero(db, sizeof(char) * (strlen("BINARY") + 1)));
 		memcpy(index->azColl[j], "BINARY", strlen("BINARY"));
 	}
 
@@ -954,7 +1095,6 @@ SIndex *get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *t
 		say_debug("%s(): field[5] in INDEX must be array, but type is %d\n", __func_name, idx_cols.GetType());
 		return NULL;
 	}
-	//index->aiColumn = reinterpret_cast<i16 *>(sqlite3DbMallocZero(db, sizeof(i16) * table->nCol));
 	index->nKeyCol = idx_cols.Size();
 	for (uint32_t j = 0, sz = idx_cols.Size(); j < sz; ++j) {
 		i16 num = idx_cols[j][0][0]->GetUint64();
@@ -972,129 +1112,164 @@ SIndex *get_trntl_index_from_tuple(box_tuple_t *index_tpl, sqlite3 *db, Table *t
 		index->aiColumn[start++] = j;
 	}
 
-	//index->aiRowLogEst = reinterpret_cast<LogEst *>(sqlite3DbMallocZero(db, sizeof(LogEst) * index->nKeyCol));
 	for (int i = 0; i < index->nKeyCol; ++i) index->aiRowLogEst[i] = table->nRowLogEst;
 
 	ok = true;
 	return index;
 }
 
-Hash get_trntl_spaces(void *self_, sqlite3 *db, char **pzErrMsg, Schema *pSchema, Hash *idxHash_) {
-	static const char *__func_name = "get_trntl_spaces";
-
-	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
-	say_debug("%s(): self = %d, db = %d\n", __func_name, (int)(self != NULL), (int)(db != NULL));
-	if (__func_name == NULL) {
-		sqlite3SetString(pzErrMsg, db, "__func_name == NULL");
-	}
-
-	Hash tblHash;
-	Hash idxHash;
-	memset(&tblHash, 0, sizeof(Hash));
-	memset(&idxHash, 0, sizeof(Hash));
-
-	char key[2], *key_end = mp_encode_array(key, 0);
-	box_iterator_t *it = box_index_iterator(BOX_SPACE_ID, 0, ITER_ALL, key, key_end);
-	box_tuple_t *tpl = NULL;
-	SIndex **new_indices = NULL;
-	box_txn_begin();
-
-
-	while(1) {
-		if (box_iterator_next(it, &tpl)) {
-			say_debug("%s(): box_iterator_next return not 0\n", __func_name);
-			goto __get_trntl_spaces_end_bad;
-		}
-		if (!tpl) {
-			break;
-		}
-		Table *table = get_trntl_table_from_tuple(tpl, db, pSchema);
-		if (table == NULL) return tblHash;
-
-		//----Indices----
-
-		box_iterator_t *index_it = box_index_iterator(BOX_INDEX_ID, 0, ITER_ALL, key, key_end);
-		box_tuple_t *index_tpl = NULL;
-		while(1) {
-			MValue key, value, idx_cols, index_id, space_id;
-			SIndex *index = NULL;
-
-			if (box_iterator_next(index_it, &index_tpl)) {
-				say_debug("%s(): box_iterator_next return not 0 for next index\n", __func_name);
-				goto __get_trntl_spaces_index_bad;
-			}
-			if (!index_tpl) {
-				break;
-			}
-			
-			bool ok;
-			index = get_trntl_index_from_tuple(index_tpl, db, table, ok);
-			if (index == NULL) {
-				if (ok) continue;
-				return tblHash;
-			}
-
-			sqlite3HashInsert(&idxHash, index->zName, index);
-			if (table->pIndex) {
-				index->pNext = table->pIndex;
-			}
-			table->pIndex = index;
-
-			new_indices = new SIndex*[self->cnt_indices + 1];
-			memcpy(new_indices, self->indices, self->cnt_indices * sizeof(SIndex *));
-			new_indices[self->cnt_indices] = index;
-			self->cnt_indices++;
-			if (self->indices) delete[] self->indices;
-			self->indices = new_indices;
-
-			continue;
-__get_trntl_spaces_index_bad:
-			box_iterator_free(index_it);
-			sqlite3DbFree(db, table);
-			if (index->aSortOrder) sqlite3DbFree(db, index->aSortOrder);
-			if (index->aiColumn) sqlite3DbFree(db, index->aiColumn);
-			if (index->azColl) {
-				for (uint32_t j = 0; j < index->nColumn; ++j) {
-					sqlite3DbFree(db, index->azColl[j]);
-				}
-				sqlite3DbFree(db, index->azColl);
-			}
-			if (index) sqlite3DbFree(db, index);
-			goto __get_trntl_spaces_end_bad;
-		}
-		box_iterator_free(index_it);
-
-		sqlite3HashInsert(&tblHash, table->zName, table);
-	}
-
-	box_iterator_free(it);
-	box_txn_commit();
-	*idxHash_ = idxHash;
-	return tblHash;
-__get_trntl_spaces_end_bad:
-	box_txn_rollback();
-	box_iterator_free(it);
-	return tblHash;
+void
+add_new_index_to_self(sql_trntl_self *self, SIndex *new_index) {
+	SIndex **new_indices = new SIndex*[self->cnt_indices + 1];
+	memcpy(new_indices, self->indices, self->cnt_indices * sizeof(SIndex *));
+	new_indices[self->cnt_indices] = new_index;
+	self->cnt_indices++;
+	if (self->indices) delete[] self->indices;
+	self->indices = new_indices;
 }
 
-void sql_tarantool_api_init(sql_tarantool_api *ob) {
-	ob->get_trntl_spaces = &get_trntl_spaces;
-	sql_trntl_self *self = new sql_trntl_self;
-	ob->self = self;
-	self->cursors = NULL;
-	self->cnt_cursors = 0;
-	self->indices = NULL;
-	self->cnt_indices = 0;
-	ob->trntl_cursor_create = trntl_cursor_create;
-	ob->trntl_cursor_first = trntl_cursor_first;
-	ob->trntl_cursor_data_size = trntl_cursor_data_size;
-	ob->trntl_cursor_data_fetch = trntl_cursor_data_fetch;
-	ob->trntl_cursor_next = trntl_cursor_next;
-	ob->trntl_cursor_close = trntl_cursor_close;
-	ob->check_num_on_tarantool_id = check_num_on_tarantool_id;
-	ob->trntl_cursor_move_to_unpacked = trntl_cursor_move_to_unpacked;
-	ob->trntl_cursor_key_size = trntl_cursor_key_size;
-	ob->trntl_cursor_key_fetch = trntl_cursor_key_fetch;
+void
+remove_old_index_from_self(sql_trntl_self *self, SIndex *old_index) {
+	SIndex **new_indices = new SIndex*[self->cnt_indices - 1];
+	for (int i = 0, j = 0; i < self->cnt_indices; ++i) {
+		if (self->indices[i] != old_index)
+			new_indices[j++] = self->indices[i];
+	}
+	delete[] self->indices;
+	self->cnt_indices--;
+	self->indices = new_indices;
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~ T A R A N T O O L   C U R S O R   A P I ~~~~~~~~~~~~~~~~~~~~~~~~
+
+int
+trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
+                              struct KeyInfo *pKeyInfo, BtCursor *pCur) {
+	static const char *__func_name = "trntl_cursor_create";
+	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
+
+	for (int i = 0; i < self->cnt_cursors; ++i) {
+		if (self->cursors[i]->brother == pCur) {
+			say_debug("%s(): trying to reinit existing cursor\n", __func_name);
+			return SQLITE_ERROR;
+		}
+	}
+	u32 num;
+	memcpy(&num, &iTable, sizeof(u32));
+	TrntlCursor *c = new TrntlCursor();
+	c->key = new char[2];
+	char *key_end = mp_encode_array(c->key, 0);
+	int index_id = 0;
+	int type = ITER_ALL;
+	int space_id = get_space_id_from(num);
+	index_id = get_index_id_from(num) % 15;
+	u32 tnum = make_index_id(space_id, index_id);
+	SIndex *sql_index = NULL;
+	for (int i = 0; i < self->cnt_indices; ++i) {
+		if (self->indices[i]->tnum == tnum) {
+			sql_index = self->indices[i];
+			break;
+		}
+	}
+	if (sql_index == NULL) {
+		say_debug("%s(): sql_index not found, space_id = %d, index_id = %d\n", __func_name, space_id, index_id);
+		delete[] c;
+		delete[] c->key;
+		return SQLITE_ERROR;
+	}
+	c->cursor = TarantoolCursor(p->db, space_id, index_id, type, c->key, key_end, sql_index);
+	c->brother = pCur;
+	pCur->trntl_cursor = (void *)c;
+	pCur->pBtree = p;
+	pCur->pBt = p->pBt;
+	memcpy(&pCur->pgnoRoot, &iTable, sizeof(Pgno));
+	pCur->iPage = -1;
+	pCur->curFlags = wrFlag;
+	pCur->pKeyInfo = pKeyInfo;
+	pCur->eState = CURSOR_VALID;
+	if (self->cnt_cursors == 0) {
+		self->cursors = new TrntlCursor*[1];
+	} else {
+		TrntlCursor **tmp = new TrntlCursor*[self->cnt_cursors + 1];
+		memcpy(tmp, self->cursors, sizeof(TrntlCursor *) * self->cnt_cursors);
+		delete[] self->cursors;
+		self->cursors = tmp;
+	}
+	self->cursors[self->cnt_cursors++] = c;
+	return SQLITE_OK;
+}
+
+int
+trntl_cursor_first(void * /*self_*/, BtCursor *pCur, int *pRes) {
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.MoveToFirst(pRes);
+}
+
+int
+trntl_cursor_data_size(void * /*self_*/, BtCursor *pCur, u32 *pSize) {
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.DataSize(pSize);
+}
+
+const void *
+trntl_cursor_data_fetch(void * /*self_*/, BtCursor *pCur, u32 *pAmt) {
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.DataFetch(pAmt);
+}
+
+int
+trntl_cursor_key_size(void * /*self_*/, BtCursor *pCur, i64 *pSize) {
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.KeySize(pSize);
+}
+ 
+const void *
+trntl_cursor_key_fetch(void * /*self_*/, BtCursor *pCur, u32 *pAmt) {
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.KeyFetch(pAmt);
+}
+
+int
+trntl_cursor_next(void * /*self_*/, BtCursor *pCur, int *pRes) {
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.Next(pRes);
+}
+
+void
+remove_cursor_from_global(sql_trntl_self *self, BtCursor *cursor) {
+	TrntlCursor *c = (TrntlCursor *)cursor->trntl_cursor;
+	delete[] c->key;
+	TrntlCursor **new_cursors = new TrntlCursor*[self->cnt_cursors - 1];
+	for (int i = 0, j = 0; i < self->cnt_cursors; ++i) {
+		if (self->cursors[i]->brother != cursor) {
+			new_cursors[j++] = self->cursors[i];
+		}
+	}
+	delete[] self->cursors;
+	self->cnt_cursors--;
+	self->cursors = new_cursors;
+	delete c;
+	sqlite3_free(cursor->pKey);
+	cursor->pKey = 0;
+  	cursor->eState = CURSOR_INVALID;
+}
+
+int
+trntl_cursor_close(void *self_, BtCursor *pCur) {
+	static const char *__func_name = "trntl_cursor_first";
+	sql_trntl_self *self = reinterpret_cast<sql_trntl_self *>(self_);
+	if (!self) {
+		say_debug("%s(): self must not be NULL\n", __func_name);
+		return SQLITE_ERROR;
+	}
+	remove_cursor_from_global(self, pCur);
+	return SQLITE_OK;
+}
+
+int
+trntl_cursor_move_to_unpacked(void * /*self_*/, BtCursor *pCur, UnpackedRecord *pIdxKey, i64 intKey, int /*biasRight*/, int *pRes, RecordCompare xRecordCompare) {
+	TrntlCursor *c = (TrntlCursor *)pCur->trntl_cursor;
+	return c->cursor.MoveToUnpacked(pIdxKey, intKey, pRes, xRecordCompare);
 }
 
 }
