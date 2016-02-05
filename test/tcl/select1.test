@@ -1,12 +1,39 @@
 set testdir [file dirname $argv0]
 source $testdir/tester.tcl
 
-do_test select1-0.1 {
-  execsql {SELECT * from tst_space2}
+do_test select1-1.1 {
+  execsql {SELECT * from test1}
 } {1.0 2.0 3.0}
 
-do_test select1-0.2 {
-  execsql {SELECT id from tst_space2}
+do_test select1-1.2 {
+  execsql {SELECT id from test1}
 } {1.0 2.0 3.0}
 
-finish_test
+
+do_test select1-1.2 {
+  execsql {SELECT id, * from test1}
+} {1.0 1.0 2.0 2.0 3.0 3.0}
+
+do_test select1-1.3 {
+  execsql {SELECT id, id from test1}
+} {1.0 1.0 2.0 2.0 3.0 3.0}
+
+do_test select1-2.1 {
+  execsql {SELECT * from test2}
+} {1.0 2.0 3.0}
+
+do_test select1-2.2 {
+  execsql {SELECT id from test2}
+} {1.0 2.0 3.0}
+
+
+do_test select1-2.2 {
+  execsql {SELECT id, * from test2}
+} {1.0 1.0 2.0 2.0 3.0 3.0}
+
+do_test select1-2.3 {
+  execsql {SELECT id, id from test2}
+} {1.0 1.0 2.0 2.0 3.0 3.0}
+
+
+# finish_test
