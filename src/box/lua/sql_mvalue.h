@@ -32,6 +32,14 @@
  * SUCH DAMAGE.
  */
 
+extern "C" {
+#include "sqliteInt.h"
+#include "sqlite3.h"
+#include "vdbeInt.h"
+}
+#undef likely
+#undef unlikely
+
 #include "box/index.h"
 
 class MValue {
@@ -46,6 +54,11 @@ static int do_mvalue_from_msgpuck(MValue *res, const char **data);
 public:
 	MValue();
 	MValue(const MValue &ob);
+	MValue(int64_t n);
+	MValue(uint64_t n);
+	MValue(const char *src, int len = -1);
+	MValue(double num);
+	MValue(const void *src, int len);
 
 	bool IsError() const;
 	bool IsEmpty() const;
@@ -63,6 +76,7 @@ public:
 	int Size() const;
 
 	static MValue FromMSGPuck(const char **data);
+	static MValue FromBtreeCell(const char *data, int serial_type, int &size);
 
 	void Clear();
 

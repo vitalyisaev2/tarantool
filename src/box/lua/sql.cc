@@ -244,6 +244,10 @@ trntl_cursor_key_fetch(void *self, BtCursor *pCur, u32 *pAmt);
 int
 trntl_cursor_next(void *self, BtCursor *pCur, int *pRes);
 
+int trntl_cursor_insert(void *self, BtCursor *pCur, const void *pKey,
+	i64 nKey, const void *pData, int nData, int nZero, int appendBias,
+	int seekResult);
+
 /**
  * Remove TarantoolCursor from global array of opened cursors and
  * release resources of BtCursor.
@@ -699,6 +703,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->trntl_cursor_move_to_unpacked = trntl_cursor_move_to_unpacked;
 	ob->trntl_cursor_key_size = trntl_cursor_key_size;
 	ob->trntl_cursor_key_fetch = trntl_cursor_key_fetch;
+	ob->trntl_cursor_insert = trntl_cursor_insert;
 }
 
 void
@@ -1177,7 +1182,7 @@ trntl_cursor_create(void *self_, Btree *p, int iTable, int wrFlag,
 		delete[] c->key;
 		return SQLITE_ERROR;
 	}
-	c->cursor = TarantoolCursor(p->db, space_id, index_id, type, c->key, key_end, sql_index);
+	c->cursor = TarantoolCursor(p->db, space_id, index_id, type, c->key, key_end, sql_index, wrFlag);
 	c->brother = pCur;
 	pCur->trntl_cursor = (void *)c;
 	pCur->pBtree = p;
@@ -1233,6 +1238,14 @@ int
 trntl_cursor_next(void * /*self_*/, BtCursor *pCur, int *pRes) {
 	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
 	return c->cursor.Next(pRes);
+}
+
+int trntl_cursor_insert(void * /*self_*/, BtCursor *pCur, const void *pKey,
+	i64 nKey, const void *pData, int nData, int nZero, int appendBias,
+	int seekResult) {
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.Insert(pKey, nKey, pData, nData, nZero, appendBias,
+		seekResult);
 }
 
 void

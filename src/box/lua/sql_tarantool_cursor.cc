@@ -385,19 +385,113 @@ bool TarantoolCursor::make_btree_key_from_tuple() {
 	return true;
 }
 
+bool TarantoolCursor::make_msgpuck_from_btree_cell(const char *dt, int sz) {
+	static const char *__func_name = "TarantoolCursor::make_msgpuck_from_btree_cell";
+	u64 header_size;
+	int bytes = sqlite3GetVarint((const unsigned char *)dt, &header_size);
+	(void)sz;
+	const char *orig = dt;
+	const char *iterator = dt + bytes;
+	int nCol = sql_index->nColumn;
+	u64 *serial_types = new u64[nCol];
+	int i, j;
+	for (i = 0; i < nCol; ++i) {
+		bytes = sqlite3GetVarint((const unsigned char *)iterator, serial_types + i);
+		iterator += bytes;
+	}
+	if (i < nCol - 1) {
+		say_debug("%s(): cols number in btree cell less than cols number in index\n", __func_name);
+		delete[] serial_types;
+		return false;
+	}
+	MValue *vals = new MValue[nCol];
+	iterator = orig + header_size;
+	int msg_size = 5;
+	for (i = 0; i < nCol; ++i) {
+		int step;
+		vals[i] = MValue::FromBtreeCell(iterator, serial_types[i], step);
+		iterator += step;
+		switch(vals[i].GetType()) {
+			case MP_NIL: msg_size += mp_sizeof_nil(); break;
+			case MP_UINT: msg_size += mp_sizeof_uint(vals[i].GetUint64()); break;
+			case MP_INT: msg_size += mp_sizeof_int(vals[i].GetInt64()); break;
+			case MP_STR: msg_size += mp_sizeof_str(vals[i].Size()); break;
+			case MP_BIN: msg_size += mp_sizeof_bin(vals[i].Size()); break;
+			case MP_DOUBLE: msg_size += mp_sizeof_double(vals[i].GetDouble()); break;
+			default: {
+				say_debug("%s(): unsupported mvalue type\n", __func_name);
+				delete[] serial_types;
+				delete[] vals;
+				return false;
+			}
+		}
+	}
+	delete[] serial_types;
+	char *msg_pack = new char[msg_size];
+	char *it = msg_pack;
+	int *cols_in_index = new int[nCol];
+	int *cols_in_msg = new int[nCol];
+	for (i = 0; i < sql_index->nKeyCol; ++i) {
+		cols_in_index[i] = sql_index->aiColumn[i];
+	}
+	for (i = 0, j = sql_index->nKeyCol; i < nCol; ++i) {
+		bool found = false;
+		for (int k = 0; k < j; ++k) {
+			if (cols_in_index[k] == i) {
+				found = true;
+				break;
+			}
+		}
+		if (found) continue;
+		cols_in_index[j++] = i;
+	}
+	for (i = 0; i < nCol; ++i) {
+		for (j = 0; j < nCol; ++j) {
+			if (cols_in_index[j] == i) {
+				cols_in_msg[i] = j;
+				break;
+			}
+		}
+	}
+	delete[] cols_in_index;
+	it = mp_encode_array(it, nCol);
+	for (i = 0; i < nCol; ++i) {
+		j = cols_in_msg[i];
+		switch(vals[j].GetType()) {
+			case MP_NIL: it = mp_encode_nil(it); break;
+			case MP_UINT: it = mp_encode_uint(it, vals[j].GetUint64()); break;
+			case MP_INT: it = mp_encode_int(it, vals[j].GetInt64()); break;
+			case MP_DOUBLE: it = mp_encode_double(it, vals[j].GetDouble()); break;
+			case MP_STR: it = mp_encode_str(it, vals[j].GetStr(), vals[j].Size()); break;
+			case MP_BIN: it = mp_encode_bin(it, vals[j].GetBin(), vals[j].Size()); break;
+			default: {
+				say_debug("%s(): unsupported mvalue type\n", __func_name);
+				delete[] msg_pack;
+				delete[] cols_in_msg;
+				return false;
+			}
+		}
+	}
+	delete[] cols_in_msg;
+	data = msg_pack;
+	size = it - msg_pack;
+	return true;
+}
+
 TarantoolCursor::TarantoolCursor() : space_id(0), index_id(0), type(-1), key(NULL),
-	key_end(NULL), it(NULL), tpl(NULL), db(NULL), data(NULL), size(0) { }
+	key_end(NULL), it(NULL), tpl(NULL), sql_index(NULL), wrFlag(-1), db(NULL), data(NULL), size(0) { }
 
 TarantoolCursor::TarantoolCursor(sqlite3 *db_, uint32_t space_id_, uint32_t index_id_, int type_,
-               const char *key_, const char *key_end_, SIndex *sql_index_)
+               const char *key_, const char *key_end_, SIndex *sql_index_, int wrFlag_)
 : space_id(space_id_), index_id(index_id_), type(type_), key(key_), key_end(key_end_),
-	tpl(NULL), sql_index(sql_index_), db(db_), data(NULL), size(0) {
-	it = box_index_iterator(space_id, index_id, type, key, key_end);
+	tpl(NULL), sql_index(sql_index_), wrFlag(wrFlag_), db(db_), data(NULL), size(0) {
+	if (!wrFlag)
+		it = box_index_iterator(space_id, index_id, type, key, key_end);
 }
 
 int TarantoolCursor::MoveToFirst(int *pRes) {
 	static const char *__func_name = "TarantoolCursor::MoveToFirst";
-
+	if (it) box_iterator_free(it);
 	it = box_index_iterator(space_id, index_id, type, key, key_end);
 	int rc = box_iterator_next(it, &tpl);
 	if (rc) {
@@ -406,6 +500,10 @@ int TarantoolCursor::MoveToFirst(int *pRes) {
 		tpl = NULL;
 	} else {
 		*pRes = 0;
+	}
+	if (tpl == NULL) {
+		*pRes = 1;
+		return SQLITE_OK;
 	}
 	rc = this->make_btree_cell_from_tuple();
 	return SQLITE_OK;
@@ -450,6 +548,23 @@ int TarantoolCursor::Next(int *pRes) {
 	}
 	rc = this->make_btree_cell_from_tuple();
 	return SQLITE_OK;
+}
+
+int TarantoolCursor::Insert(const void *pKey,
+	i64 nKey, const void *pData, int nData, int nZero, int appendBias,
+	int seekResult) {
+	static const char *__func_name = "TarantoolCursor::Insert";
+	(void)pData;
+	(void)nData;
+	(void)nZero;
+	(void)appendBias;
+	(void)seekResult;
+	if (!make_msgpuck_from_btree_cell((const char *)pKey, nKey)) {
+		say_debug("%s(): error while inserting record\n", __func_name);
+		return SQLITE_ERROR;
+	}
+	int rc = box_insert(space_id, (const char *)data, (const char *)data + size, NULL);
+	return rc;
 }
 
 int TarantoolCursor::MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pRes, RecordCompare xRecordCompare) {
