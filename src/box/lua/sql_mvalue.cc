@@ -37,6 +37,49 @@ MValue::MValue(const MValue &ob) : type(-1), data(NULL), data_len(0), error(fals
 	*this = ob;
 }
 
+MValue::MValue(int64_t n) : type(-1), data(NULL), data_len(0), error(false) {
+	data = malloc(sizeof(int64_t));
+	memcpy(data, &n, sizeof(int64_t));
+	data_len = sizeof(int64_t);
+	if (n > 0) {
+		type = MP_UINT;
+	} else {
+		type = MP_INT;
+	}
+}
+
+MValue::MValue(uint64_t n) {
+	data = malloc(sizeof(uint64_t));
+	memcpy(data, &n, sizeof(uint64_t));
+	data_len = sizeof(uint64_t);
+	type = MP_UINT;
+}
+
+MValue::MValue(const char *src, int len) {
+	if (len < 0) {
+		len = strlen(src);
+	}
+	data = malloc(len + 1);
+	((char *)data)[len] = 0;
+	memcpy(data, src, len);
+	type = MP_STR;
+	data_len = len;
+}
+
+MValue::MValue(double num) {
+	data = malloc(sizeof(double));
+	memcpy(data, &num, sizeof(double));
+	data_len = sizeof(double);
+	type = MP_DOUBLE;
+}
+
+MValue::MValue(const void *src, int len) {
+	data = malloc(len);
+	memcpy(data, src, len);
+	data_len = len;
+	type = MP_BIN;
+}
+
 MValue &MValue::operator=(const MValue &ob) {
 	Clear();
 	type = ob.type;
@@ -177,6 +220,25 @@ MValue MValue::FromMSGPuck(const char **data) {
 	MValue res;
 	MValue::do_mvalue_from_msgpuck(&res, data);
 	return res;
+}
+
+MValue MValue::FromBtreeCell(const char *data, int serial_type, int &size) {
+	Mem mem;
+	memset(&mem, 0, sizeof(mem));
+	size = sqlite3VdbeSerialGet((const unsigned char *)data, serial_type, &mem);
+
+	switch(mem.flags) {
+		case MEM_Null: return MValue();
+		case MEM_Int: return MValue((int64_t)mem.u.i);
+		case MEM_Real: return MValue(mem.u.r);
+		default: {
+			if (mem.flags & MEM_Blob)
+				return MValue((const void *)mem.z, mem.n);
+			else if (mem.flags & MEM_Str)
+				return MValue((const char *)mem.z, mem.n);
+			return MValue();
+		}
+	}
 }
 
 int MValue::do_mvalue_from_msgpuck(MValue *res, const char **data) {

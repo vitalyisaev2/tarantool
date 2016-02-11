@@ -47,6 +47,7 @@ extern "C" {
 #include "box/schema.h"
 #include "box/txn.h"
 #include "box/tuple.h"
+#include "box/box.h"
 #include "sql_mvalue.h"
 
 class TarantoolCursor {
@@ -59,6 +60,7 @@ private:
 	box_iterator_t *it;
 	box_tuple_t *tpl;
 	SIndex *sql_index;
+	int wrFlag;
 
 	sqlite3 *db;
 
@@ -67,11 +69,12 @@ private:
 
 	bool make_btree_cell_from_tuple();
 	bool make_btree_key_from_tuple();
+	bool make_msgpuck_from_btree_cell(const char *dt, int sz);
 
 public:
 	TarantoolCursor();
 	TarantoolCursor(sqlite3 *db_, uint32_t space_id_, uint32_t index_id_, int type_,
-               const char *key_, const char *key_end_, SIndex *sql_index_);
+               const char *key_, const char *key_end_, SIndex *sql_index_, int wrFlag);
 	TarantoolCursor(const TarantoolCursor &ob);
 	TarantoolCursor &operator=(const TarantoolCursor &ob);
 	int MoveToFirst(int *pRes);
@@ -81,6 +84,9 @@ public:
 	const void *KeyFetch(u32 *pAmt);
 	int Next(int *pRes);
 	int MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pRes, RecordCompare xRecordCompare);
+	int Insert(const void *pKey,
+		i64 nKey, const void *pData, int nData, int nZero, int appendBias,
+		int seekResult);
 	~TarantoolCursor();
 };
 
