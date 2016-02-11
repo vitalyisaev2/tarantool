@@ -501,6 +501,10 @@ int TarantoolCursor::MoveToFirst(int *pRes) {
 	} else {
 		*pRes = 0;
 	}
+	if (tpl == NULL) {
+		*pRes = 1;
+		return SQLITE_OK;
+	}
 	rc = this->make_btree_cell_from_tuple();
 	return SQLITE_OK;
 }
