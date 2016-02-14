@@ -248,6 +248,8 @@ int trntl_cursor_insert(void *self, BtCursor *pCur, const void *pKey,
 	i64 nKey, const void *pData, int nData, int nZero, int appendBias,
 	int seekResult);
 
+void log_debug(const char *msg);
+
 /**
  * Remove TarantoolCursor from global array of opened cursors and
  * release resources of BtCursor.
@@ -704,6 +706,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->trntl_cursor_key_size = trntl_cursor_key_size;
 	ob->trntl_cursor_key_fetch = trntl_cursor_key_fetch;
 	ob->trntl_cursor_insert = trntl_cursor_insert;
+	ob->log_debug = log_debug;
 }
 
 void
@@ -1246,6 +1249,10 @@ int trntl_cursor_insert(void * /*self_*/, BtCursor *pCur, const void *pKey,
 	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
 	return c->cursor.Insert(pKey, nKey, pData, nData, nZero, appendBias,
 		seekResult);
+}
+
+void log_debug(const char *msg) {
+	say_debug("%s\n", msg);
 }
 
 void

@@ -1,0 +1,32 @@
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+
+do_test insert1-0.1 {
+	execsql {SELECT * from test}
+} {1.0 2.0 3.0}
+
+execsql {INSERT INTO test values (4)}
+do_test insert1-0.2 {
+	execsql {SELECT * from test}
+} {1.0 2.0 3.0 4.0}
+
+do_test insert1-0.3 {
+	catchsql {INSERT INTO test values (1)}
+} {1 {UNIQUE constraint failed: test.id}}
+
+execsql {INSERT INTO test SELECT id from test3 id where id > 4}
+
+do_test insert1-0.4 {
+	execsql {SELECT * from test}
+} {1.0 2.0 3.0 4.0 5.0 6.0}
+
+do_test insert1-0.5 {
+	execsql {INSERT INTO test3 values (8, "Boba", "Fett", 3000, 4000, 9000)}
+	execsql {SELECT id, name, surname, bar, foo, qwerty from test3 where id = 8}
+} {8.0 Boba Fett 3000.0 4000.0 9000.0}
+
+finish_test
+
+# do_test insert1-1.6 {
+# 	catchsql {INSERT INTO test3 values (8, 'Darth', 'Vader', 100, 200, 1000)}
+# } {1.0}
