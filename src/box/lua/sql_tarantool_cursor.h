@@ -87,6 +87,7 @@ public:
 	int Insert(const void *pKey,
 		i64 nKey, const void *pData, int nData, int nZero, int appendBias,
 		int seekResult);
+	int DeleteCurrent();
 	~TarantoolCursor();
 };
 

@@ -244,9 +244,21 @@ trntl_cursor_key_fetch(void *self, BtCursor *pCur, u32 *pAmt);
 int
 trntl_cursor_next(void *self, BtCursor *pCur, int *pRes);
 
-int trntl_cursor_insert(void *self, BtCursor *pCur, const void *pKey,
+int 
+trntl_cursor_insert(void *self, BtCursor *pCur, const void *pKey,
 	i64 nKey, const void *pData, int nData, int nZero, int appendBias,
 	int seekResult);
+
+/**
+ * Delete tuple pointed by pCur.
+ * @param bPreserve If this parameter is zero, then the cursor is left pointing at an
+ * 		arbitrary location after the delete. If it is non-zero, then the cursor 
+ * 		is left in a state such that the next call to Next() or Prev()
+ * 		moves it to the same row as it would if the call to DeleteCurrent() had
+ * 		been omitted.
+ */
+int
+trntl_cursor_delete_current (void *self, BtCursor *pCur, int bPreserve);
 
 /**
  * Remove TarantoolCursor from global array of opened cursors and
@@ -704,6 +716,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->trntl_cursor_key_size = trntl_cursor_key_size;
 	ob->trntl_cursor_key_fetch = trntl_cursor_key_fetch;
 	ob->trntl_cursor_insert = trntl_cursor_insert;
+	ob->trntl_cursor_delete_current = trntl_cursor_delete_current;
 }
 
 void
@@ -1246,6 +1259,12 @@ int trntl_cursor_insert(void * /*self_*/, BtCursor *pCur, const void *pKey,
 	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
 	return c->cursor.Insert(pKey, nKey, pData, nData, nZero, appendBias,
 		seekResult);
+}
+
+int trntl_cursor_delete_current(void * /*self_*/, BtCursor *pCur, int bPreserve) {
+	(void)bPreserve;
+	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
+	return c->cursor.DeleteCurrent();
 }
 
 void

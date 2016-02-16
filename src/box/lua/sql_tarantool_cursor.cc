@@ -567,6 +567,37 @@ int TarantoolCursor::Insert(const void *pKey,
 	return rc;
 }
 
+int TarantoolCursor::DeleteCurrent() {
+	static const char *__func_name = "TarantoolCursor::DeleteCurrent";
+	(void)__func_name;
+	/*TODO: написать функцию, которая получает текущий ключ потом по этому ключу удлить
+			ожидаемая проблема, что итератор после этого упадет, подумать как это решить*/
+	int nCol = sql_index->nColumn;
+	int msg_size = 5;
+	char *msg, *msg_begin;
+	int cSize;
+	const char *tmp, *tmp_next;
+	for (int i = 0; i < nCol; ++i) {
+		tmp_next = tmp = box_tuple_field(tpl, sql_index->aiColumn[i]);
+		mp_next(&tmp_next);
+		msg_size += tmp_next - tmp;
+	}
+	msg_begin = msg = new char[msg_size];
+	msg = mp_encode_array(msg, sql_index->nColumn);
+	for (int i = 0; i < sql_index->nColumn; ++i) {
+		tmp_next = tmp = box_tuple_field(tpl, sql_index->aiColumn[i]);
+		mp_next(&tmp_next);
+		cSize = tmp_next - tmp;
+		memcpy((void *)tmp, (void *)msg, cSize);
+		msg += cSize;
+	}
+	int rc = box_delete(space_id, index_id, msg_begin, msg, NULL);
+	box_iterator_free(it);
+	type = ITER_GE;
+	it = box_index_iterator(space_id, index_id, type, msg_begin, msg);
+	return rc;
+}
+
 int TarantoolCursor::MoveToUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int *pRes, RecordCompare xRecordCompare) {
 	static const char *__func_name = "TarantoolCursor::MoveToUnpacked";
 	int rc = SQLITE_OK;
