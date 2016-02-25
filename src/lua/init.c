@@ -78,6 +78,7 @@ extern char strict_lua[],
 	digest_lua[],
 	init_lua[],
 	buffer_lua[],
+	errno_lua[],
 	fiber_lua[],
 	log_lua[],
 	uri_lua[],
@@ -105,6 +106,7 @@ static const char *lua_modules[] = {
 	/* Make it first to affect load of all other modules */
 	"strict", strict_lua,
 	"tarantool", init_lua,
+	"errno", errno_lua,
 	"fiber", fiber_lua,
 	"buffer", buffer_lua,
 	"msgpackffi", msgpackffi_lua,
@@ -280,7 +282,7 @@ tarantool_lua_setpaths(struct lua_State *L)
 		lua_pushliteral(L, "/.luarocks/share/lua/?/init.lua;");
 	}
 	lua_pushliteral(L, MODULE_LUAPATH ";");
-	lua_getfield(L, top, "path");
+	/* overwrite standard paths */
 	lua_concat(L, lua_gettop(L) - top);
 	lua_setfield(L, top, "path");
 
@@ -292,7 +294,7 @@ tarantool_lua_setpaths(struct lua_State *L)
 		lua_pushliteral(L, "/.luarocks/lib/lua/?." TARANTOOL_LIBEXT ";");
 	}
 	lua_pushliteral(L, MODULE_LIBPATH ";");
-	lua_getfield(L, top, "cpath");
+	/* overwrite standard paths */
 	lua_concat(L, lua_gettop(L) - top);
 	lua_setfield(L, top, "cpath");
 
@@ -455,8 +457,8 @@ tarantool_lua_slab_cache()
 /**
  * Execute start-up script.
  */
-static void
-run_script(va_list ap)
+static int
+run_script_f(va_list ap)
 {
 	struct lua_State *L = va_arg(ap, struct lua_State *);
 	const char *path = va_arg(ap, const char *);
@@ -504,6 +506,7 @@ run_script(va_list ap)
 	 * return control back to tarantool_lua_run_script.
 	 */
 	ev_break(loop(), EVBREAK_ALL);
+	return 0;
 }
 
 void
@@ -517,7 +520,7 @@ tarantool_lua_run_script(char *path, int argc, char **argv)
 	 * To work this problem around we must run init script in
 	 * a separate fiber.
 	 */
-	script_fiber = fiber_new(title, run_script);
+	script_fiber = fiber_new(title, run_script_f);
 	if (script_fiber == NULL)
 		panic("%s", diag_last_error(diag_get())->errmsg);
 	fiber_start(script_fiber, tarantool_L, path, argc, argv);

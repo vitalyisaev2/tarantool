@@ -47,6 +47,8 @@ client application, read the `scramble.h`_ header file.
 .. _MySQL introduced several years ago: http://dev.mysql.com/doc/refman/4.1/en/password-hashing.html
 .. _scramble.h: https://github.com/tarantool/tarantool/blob/master/src/scramble.h
 
+.. _authentication-users:
+
 ===========================================================
                 Users and the _user space
 ===========================================================
@@ -62,6 +64,11 @@ The fields in the _user space are:
 There are four special tuples in the _user space: 'guest', 'admin', 'public', and 'replication'.
 
 .. container:: table
+
+    .. rst-class:: left-align-column-1
+    .. rst-class:: right-align-column-2
+    .. rst-class:: left-align-column-3
+    .. rst-class:: left-align-column-4
 
     +-------------+----+------+--------------------------------------------------------+
     | Name        | ID | Type | Description                                            |
@@ -165,6 +172,8 @@ tuple in the _user space, and then drops the user.
 
     The maximum number of users is 32.
 
+.. _privileges:
+
 ===========================================================
                Privileges and the _priv space
 ===========================================================
@@ -233,8 +242,10 @@ privilege to read from a space named ``space55``, and then took the privilege aw
    Only the creator of a space can drop, alter, or truncate the space.
    Only the creator of a user can change a different user's password.
 
+.. _authentication-funcs:
+
 ===========================================================
-                Functions and _func space
+                Functions and the _func space
 ===========================================================
 
 The fields in the _func space are:
@@ -360,6 +371,8 @@ and later a guest user, who wishes to see the payroll, might say:
     box.session.su('manager')
     box.space.payroll:select{'Jones'}
 
+.. _authentication-roles:
+
 ===========================================================
                          Roles
 ===========================================================
@@ -369,6 +382,8 @@ Instead of granting and revoking individual privileges, one can put all the
 privileges in a role and then grant or revoke the role. Role information is
 in the _user space but the third field - the type field - is 'role' rather
 than 'user'.
+
+.. _rep-role:
 
 If a role R1 is granted a privilege X, and user U1 is granted a privilege
 "role R1", then user U1 in effect has privilege X. Then if a role R2 is

@@ -32,6 +32,7 @@
 
 #include <say.h>
 #include <scoped_guard.h>
+#include "ipc.h"
 #include "iproto.h"
 #include "iproto_constants.h"
 #include "recovery.h"
@@ -79,17 +80,18 @@ struct recovery *recovery;
  */
 static struct recover_row_ctx {
 	/** How many rows have been recovered so far. */
-	int rows;
+	size_t rows;
 	/** Yield once per 'yield' rows. */
-	int yield;
+	size_t yield;
 } recover_row_ctx;
 
 bool snapshot_in_progress = false;
 static bool box_init_done = false;
 bool is_ro = true;
+struct ipc_channel wait_rw;
 
 void
-recover_row_ctx_init(struct recover_row_ctx *ctx, int rows_per_wal)
+recover_row_ctx_init(struct recover_row_ctx *ctx, size_t rows_per_wal)
 {
 	ctx->rows = 0;
 	/**
@@ -176,6 +178,18 @@ void
 box_set_ro(bool ro)
 {
 	is_ro = ro;
+	if (ro == false && ipc_channel_has_readers(&wait_rw))
+		ipc_channel_put(&wait_rw, NULL);
+}
+
+static void
+box_wait_rw()
+{
+	void *msg;
+	while (is_ro) {
+		ipc_channel_get(&wait_rw, &msg);
+		assert(msg == NULL);
+	}
 }
 
 bool
@@ -207,6 +221,18 @@ recover_row(struct recovery *r, void *param, struct xrow_header *row)
 }
 
 /* {{{ configuration bindings */
+
+static void
+box_check_logger(const char *logger)
+{
+	char *error_msg;
+	if (logger == NULL)
+		return;
+	if (say_check_init_str(logger, &error_msg) == -1) {
+		auto guard = make_scoped_guard([=]{ free(error_msg); });
+		tnt_raise(ClientError, ER_CFG, "logger", error_msg);
+	}
+}
 
 static void
 box_check_uri(const char *source, const char *option_name)
@@ -245,15 +271,16 @@ box_check_wal_mode(const char *mode_name)
 static void
 box_check_readahead(int readahead)
 {
-	enum { READAHEAD_MIN = 128, READAHEAD_MAX = 2147483648 };
-	if (readahead < READAHEAD_MIN || readahead > READAHEAD_MAX) {
+	enum { READAHEAD_MIN = 128, READAHEAD_MAX = 2147483647 };
+	if (readahead < (int) READAHEAD_MIN ||
+	    readahead > (int) READAHEAD_MAX) {
 		tnt_raise(ClientError, ER_CFG, "readahead",
 			  "specified value is out of bounds");
 	}
 }
 
-static int
-box_check_rows_per_wal(int rows_per_wal)
+static int64_t
+box_check_rows_per_wal(int64_t rows_per_wal)
 {
 	/* check rows_per_wal configuration */
 	if (rows_per_wal <= 1) {
@@ -266,10 +293,11 @@ box_check_rows_per_wal(int rows_per_wal)
 void
 box_check_config()
 {
+	box_check_logger(cfg_gets("logger"));
 	box_check_uri(cfg_gets("listen"), "listen");
 	box_check_replication_source();
 	box_check_readahead(cfg_geti("readahead"));
-	box_check_rows_per_wal(cfg_geti("rows_per_wal"));
+	box_check_rows_per_wal(cfg_geti64("rows_per_wal"));
 	box_check_wal_mode(cfg_gets("wal_mode"));
 }
 
@@ -644,6 +672,9 @@ box_upsert(uint32_t space_id, uint32_t index_id, const char *tuple,
 static void
 box_on_cluster_join(const tt_uuid *server_uuid)
 {
+	if (is_ro)
+		tnt_raise(LoggedError, ER_READONLY);
+
 	/** Find the largest existing server id. */
 	struct space *space = space_cache_find(BOX_CLUSTER_ID);
 	class MemtxIndex *index = index_find_system(space, 0);
@@ -819,11 +850,15 @@ box_process_eval(struct request *request, struct obuf *out)
 void
 box_process_join(struct ev_io *io, struct xrow_header *header)
 {
+	assert(header->type == IPROTO_JOIN);
+
 	/* Check permissions */
 	access_check_universe(PRIV_R);
 	access_check_space(space_cache_find(BOX_CLUSTER_ID), PRIV_W);
 
-	assert(header->type == IPROTO_JOIN);
+	/* Check that we actually can register a new replica */
+	if (is_ro)
+		tnt_raise(LoggedError, ER_READONLY);
 
 	struct tt_uuid server_uuid = uuid_nil;
 	xrow_decode_join(header, &server_uuid);
@@ -935,19 +970,18 @@ box_set_server_uuid()
 	assert(r->server_id == 0);
 
 	/* Unregister local server if it was registered by bootstrap.bin */
-	if (vclock_has(&r->vclock, 1))
-		boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "%u", 1);
-	assert(!vclock_has(&r->vclock, 1));
+	boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "%u", 1);
 
 	/* Register local server */
 	tt_uuid_create(&r->server_uuid);
 	boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "%u%s",
 	     1, tt_uuid_str(&r->server_uuid));
-	assert(vclock_has(&r->vclock, 1));
-
-	/* Remove surrogate server */
-	vclock_del_server(&r->vclock, 0);
 	assert(r->server_id == 1);
+
+	/* Ugly hack: bootstrap always starts from scratch */
+	vclock_create(&r->vclock);
+	vclock_add_server(&r->vclock, 1);
+	assert(vclock_sum(&r->vclock) == 0);
 }
 
 /** Insert a new cluster into _schema */
@@ -983,6 +1017,7 @@ box_free(void)
 		port_free();
 #endif
 		engine_shutdown();
+		ipc_channel_destroy(&wait_rw);
 	}
 }
 
@@ -1004,25 +1039,6 @@ engine_init()
 	SophiaEngine *sophia = new SophiaEngine();
 	sophia->init();
 	engine_register(sophia);
-}
-
-/**
- * @brief Reduce the current number of threads in the thread pool to the
- * bare minimum. Doesn't prevent the pool from spawning new threads later
- * if demand mounts.
- */
-static void
-thread_pool_trim()
-{
-	/*
-	 * Trim OpenMP thread pool.
-	 * Though we lack the direct control the workaround below works for
-	 * GNU OpenMP library. The library stops surplus threads on entering
-	 * a parallel region. Can't go below 2 threads due to the
-	 * implementation quirk.
-	 */
-#pragma omp parallel num_threads(2)
-	;
 }
 
 /**
@@ -1090,6 +1106,8 @@ box_init(void)
 {
 	error_init();
 
+	ipc_channel_create(&wait_rw, 0);
+
 	tuple_init(cfg_getd("slab_alloc_arena"),
 		   cfg_geti("slab_alloc_minimal"),
 		   cfg_geti("slab_alloc_maximal"),
@@ -1115,13 +1133,14 @@ box_init(void)
 
 	/* recovery initialization */
 	recover_row_ctx_init(&recover_row_ctx,
-			     cfg_geti("rows_per_wal"));
+			     cfg_geti64("rows_per_wal"));
 	recovery = recovery_new(cfg_gets("snap_dir"),
 				cfg_gets("wal_dir"),
 				recover_row, &recover_row_ctx);
 	recovery_setup_panic(recovery,
 			     cfg_geti("panic_on_snap_error"),
 			     cfg_geti("panic_on_wal_error"));
+	box_set_too_long_threshold();
 
 	/*
 	 * Initialize the cluster registry using replication_source,
@@ -1148,16 +1167,11 @@ box_init(void)
 	iproto_init();
 	box_set_listen();
 
-	int rows_per_wal = box_check_rows_per_wal(cfg_geti("rows_per_wal"));
+	int64_t rows_per_wal = box_check_rows_per_wal(cfg_geti64("rows_per_wal"));
 	enum wal_mode wal_mode = box_check_wal_mode(cfg_gets("wal_mode"));
 	recovery_finalize(recovery, wal_mode, rows_per_wal);
 
 	engine_end_recovery();
-
-	/*
-	 * Recovery inflates the thread pool quite a bit (due to parallel sort).
-	 */
-	thread_pool_trim();
 
 	rmean_cleanup(rmean_box);
 
@@ -1170,6 +1184,8 @@ box_init(void)
 	/* Enter read-write mode. */
 	if (recovery->server_id > 0)
 		box_set_ro(false);
+	else
+		box_wait_rw();
 	title("running");
 	say_info("ready to accept requests");
 

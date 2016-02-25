@@ -6,6 +6,7 @@ local ffi = require('ffi')
 ffi.cdef[[
     int umask(int mask);
     char *dirname(char *path);
+    int chdir(const char *path);
 ]]
 
 local internal = fio.internal
@@ -119,7 +120,7 @@ fio.open = function(path, flags, mode)
         flags = { flags }
     end
     if type(mode) ~= 'table' then
-        mode = { mode }
+        mode = { mode or 0x1FF } -- 0777
     end
 
 
@@ -240,6 +241,13 @@ fio.abspath = function(path)
     else
         return fio.pathjoin(fio.cwd(), path)
     end
+end
+
+fio.chdir = function(path)
+    if path == nil or type(path)~='string' then
+        return false
+    end
+    return ffi.C.chdir(path) == 0
 end
 
 return fio

@@ -30,6 +30,8 @@
  */
 #include "applier.h"
 
+#include <msgpuck.h>
+
 #include "xlog.h"
 #include "fiber.h"
 #include "scoped_guard.h"
@@ -37,7 +39,6 @@
 #include "coio_buf.h"
 #include "recovery.h"
 #include "xrow.h"
-#include "msgpuck/msgpuck.h"
 #include "box/cluster.h"
 #include "iproto_constants.h"
 #include "version.h"
@@ -314,7 +315,7 @@ applier_disconnect(struct applier *applier, struct error *e,
 	fiber_gc();
 }
 
-static void
+static int
 applier_f(va_list ap)
 {
 	struct applier *applier = va_arg(ap, struct applier *);
@@ -339,7 +340,7 @@ applier_f(va_list ap)
 			 * is stoppable only with fiber_cancel().
 			 */
 			assert(0);
-			return;
+			return 0;
 		} catch (ClientError *e) {
 			/* log logical error which caused replica to stop */
 			e->log();
@@ -366,6 +367,7 @@ applier_f(va_list ap)
 		*/
 		fiber_sleep(RECONNECT_DELAY);
 	}
+	return 0;
 }
 
 void

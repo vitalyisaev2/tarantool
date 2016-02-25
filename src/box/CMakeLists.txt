@@ -1,6 +1,6 @@
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/src/box/lua)
 
-include_directories(${SOPHIA_INCLUDE_DIR})
+include_directories(${SOPHIA_INCLUDE_DIRS})
 
 set(lua_sources)
 lua_source(lua_sources lua/load_cfg.lua)
@@ -17,7 +17,7 @@ add_custom_target(box_generate_lua_sources
     DEPENDS ${lua_sources})
 set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${lua_sources})
 
-add_library(box
+add_library(box STATIC
     iproto.cc
     iproto_constants.c
     iproto_port.cc
@@ -64,6 +64,7 @@ add_library(box
     ${lua_sources}
     lua/init.c
     lua/call.c
+    lua/cfg.cc
     lua/tuple.c
     lua/slab.c
     lua/index.c
@@ -77,4 +78,5 @@ add_library(box
     lua/net_box.c
     ${bin_sources})
 
-target_link_libraries(box ${sophia_lib})
+add_dependencies(box build_bundled_libs)
+target_link_libraries(box ${SOPHIA_LIBRARIES})

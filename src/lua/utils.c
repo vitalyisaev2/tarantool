@@ -350,7 +350,7 @@ lua_field_inspect_ucdata(struct lua_State *L, struct luaL_serializer *cfg,
 	lua_pushcfunction(L, lua_gettable_wrapper);
 	lua_pushvalue(L, idx);
 	lua_pushliteral(L, LUAL_SERIALIZE);
-	if (lua_pcall(L, 2, 1, 0) == 0) {
+	if (lua_pcall(L, 2, 1, 0) == 0  && !lua_isnil(L, -1)) {
 		if (!lua_isfunction(L, -1))
 			luaL_error(L, "invalid " LUAL_SERIALIZE  " value");
 		/* copy object itself */
@@ -439,8 +439,8 @@ skip:
 
 	/* Encode excessively sparse arrays as objects (if enabled) */
 	if (cfg->encode_sparse_ratio > 0 &&
-	    max > size * cfg->encode_sparse_ratio &&
-	    max > cfg->encode_sparse_safe) {
+	    max > size * (uint32_t)cfg->encode_sparse_ratio &&
+	    max > (uint32_t)cfg->encode_sparse_safe) {
 		if (!cfg->encode_sparse_convert)
 			luaL_error(L, "excessively sparse array");
 		field->type = MP_MAP;
@@ -612,11 +612,22 @@ luaL_convertfield(struct lua_State *L, struct luaL_serializer *cfg, int idx,
 	if (idx < 0)
 		idx = lua_gettop(L) + idx + 1;
 	assert(field->type == MP_EXT); /* must be called after tofield() */
-	int type = lua_type(L, idx);
-	if (type == LUA_TUSERDATA || type == LUA_TCDATA)
-		lua_field_inspect_ucdata(L, cfg, idx, field);
 
-	type = lua_type(L, idx);
+	if (cfg->encode_load_metatables) {
+		int type = lua_type(L, idx);
+		if (type == LUA_TCDATA) {
+			/*
+			 * Don't call __serialize on primitive types
+			 * https://github.com/tarantool/tarantool/issues/1226
+			 */
+			GCcdata *cd = cdataV(L->base + idx - 1);
+			if (cd->ctypeid > CTID_CTYPEID)
+				lua_field_inspect_ucdata(L, cfg, idx, field);
+		} else if (type == LUA_TUSERDATA) {
+			lua_field_inspect_ucdata(L, cfg, idx, field);
+		}
+	}
+
 	if (field->type == MP_EXT && cfg->encode_use_tostring)
 		lua_field_tostring(L, cfg, idx, field);
 
@@ -700,9 +711,12 @@ luaL_register_module(struct lua_State *L, const char *modname,
 	luaL_register(L, NULL, methods);
 }
 
-/* Maximum integer that fits to double */
-#define DBL_INT_MAX ((1LL << 52) - 1)
-#define DBL_INT_MIN (-1LL << 52)
+/*
+ * Maximum integer that doesn't lose precision on tostring() conversion.
+ * Lua uses sprintf("%.14g") to format its numbers, see gh-1279.
+ */
+#define DBL_INT_MAX (1e14 - 1)
+#define DBL_INT_MIN (-1e14 + 1)
 
 void
 luaL_pushuint64(struct lua_State *L, uint64_t val)
@@ -789,7 +803,7 @@ luaL_convertint64(lua_State *L, int idx, bool unsignd, int64_t *result)
 		const char *arg = luaL_checkstring(L, idx);
 		char *arge;
 		errno = 0;
-		*result = (int64_t) (unsignd ? strtoull(arg, &arge, 10) :
+		*result = (unsignd ? (long long) strtoull(arg, &arge, 10) :
 			strtoll(arg, &arge, 10));
 		if (errno == 0 && arge != arg)
 			return 0;
@@ -851,7 +865,7 @@ luaL_iserror(struct lua_State *L, int narg)
 
 	uint32_t ctypeid;
 	void *data = luaL_checkcdata(L, narg, &ctypeid);
-	if (ctypeid != CTID_CONST_STRUCT_ERROR_REF)
+	if (ctypeid != (uint32_t) CTID_CONST_STRUCT_ERROR_REF)
 		return NULL;
 
 	struct error *e = *(struct error **) data;

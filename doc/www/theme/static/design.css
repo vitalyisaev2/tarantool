@@ -533,6 +533,24 @@ h1, h2, h3, h4, h5 {
 .i-avito:before {
     background-image:url('/theme/design/logo_avito.png');
 }
+.i-qiwi {
+    width:120px;
+    height:60px;
+}
+.i-qiwi:after,
+.i-qiwi:before {
+    background-image:url('/theme/design/logo_qiwi.png');
+}
+
+.i-wallarm {
+    width:130px;
+    height:63px;
+}
+.i-wallarm:after,
+.i-wallarm:before {
+    background-image:url('/theme/design/logo_wallarm.png');
+}
+
 .b-example .b-block-wrapper {
     padding:35px 0 35px 0;
 }
@@ -1490,29 +1508,6 @@ div.b-rock-list-item-ico {
 .b-job_bg .b-job_opacity-up {
     opacity: 0.9;
     margin-top: 5%;
-}
-
-.b-index_meetup {
-    height: 180px;
-    background: url('/theme/bg_meetup-bg.png') center;
-}
-
-.b-index_meetup .b-block-wrapper {
-    width: auto;
-    height: 180px;
-    padding: 0px;
-    background: url('/theme/bg_meetup.png') no-repeat center;*/
-}
-
-.b-index_meetup a {
-    top: 0; left: 0;
-    position: absolute;
-    width: 100%; height: 100%;
-    text-decoration: none; /* No underlines on the link */
-    z-index: 10; /* Places the link above everything else in the div */
-    background-color: #FFF; /* Fix to make div clickable in IE */
-    opacity: 0; /* Fix to make div clickable in IE */
-    filter: alpha(opacity=1); /* Fix to make div clickable in IE */
 }
 
 .b-button_container {

@@ -20,7 +20,7 @@ space :code:`examples` via the high-level C API.
            exit(-1);
        }
        struct tnt_stream *tuple = tnt_object(NULL);     /* See note = MAKE REQUEST */
-       tnt_object_format(tuple, "[%d%s]", 999, "B");
+       tnt_object_format(tuple, "[%d%s]", 99999, "B");
        tnt_insert(tnt, 999, tuple);                     /* See note = SEND REQUEST */
        tnt_flush(tnt);
        struct tnt_reply reply;  tnt_reply_init(&reply); /* See note = GET REPLY */
@@ -33,17 +33,13 @@ space :code:`examples` via the high-level C API.
        tnt_stream_free(tnt);
     }
 
-.. parsed-literal::
-
-    :ref:`SETUP <c_setup>`, :ref:`CONNECT <c_connect>`, :ref:`MAKE REQUEST <c_make_request>`, :ref:`SEND REQUEST <c_make_request>`, :ref:`GET REPLY <c_get_reply>`, :ref:`TEARDOWN <c_teardown>`
-
 To prepare, paste the code into a file named example.c and install
 tarantool-c. One way to install tarantool-c (using Ubuntu) is:
 
 .. code-block:: console
 
     $ git clone git://github.com/tarantool/tarantool-c.git ~/tarantool-c
-    $ cd tarantool-c
+    $ cd ~/tarantool-c
     $ git submodule init
     $ git submodule update
     $ cmake .
@@ -67,14 +63,12 @@ If the insert fails, the program will print "Insert failed" and an error number.
 
 Here are notes corresponding to comments in the example program.
 
-.. _c_setup:
-
 **SETUP:** The setup begins by creating a stream.
 
 .. code-block:: c
 
     struct tnt_stream *tnt = tnt_net(NULL);
-     tnt_set(tnt, TNT_OPT_URI, "localhost:3301");
+    tnt_set(tnt, TNT_OPT_URI, "localhost:3301");
 
 In this program the stream will be named :code:`tnt`.
 Before connecting on the tnt stream, some options may have to be set.
@@ -84,10 +78,11 @@ Tarantool server is supposed to be listening.
 
 Function description:
 
-.. c:function:: struct tnt_stream *tnt_net(struct tnt_stream *s)
-.. c:function:: int tnt_set(struct tnt_stream *s, int option, variant option-value)
+.. cssclass:: highlight
+.. parsed-literal::
 
-.. _c_connect:
+    `struct tnt_stream *tnt_net(struct tnt_stream *s)`
+    `int tnt_set(struct tnt_stream *s, int option, variant option-value)`
 
 **CONNECT:** Now that the stream named ``tnt`` exists and is associated with a
 URI, this example program can connect to the server.
@@ -99,13 +94,14 @@ URI, this example program can connect to the server.
 
 Function description:
 
-.. c:function:: int tnt_connect(struct tnt_stream *s)
+.. cssclass:: highlight
+.. parsed-literal::
+
+    int tnt_connect(struct tnt_stream \*s)
 
 The connect might fail for a variety of reasons, such as:
 the server is not running, or the URI contains an invalid password.
 If the connect fails, the return value will be -1.
-
-.. _c_make_request:
 
 **MAKE REQUEST:** Most requests require passing a structured value, such as
 the contents of a tuple.
@@ -113,7 +109,7 @@ the contents of a tuple.
 .. code-block:: c
 
     struct tnt_stream *tuple = tnt_object(NULL);
-     tnt_object_format(tuple, "[%d%s]", 999, "B");
+    tnt_object_format(tuple, "[%d%s]", 99999, "B");
 
 In this program the request will
 be an insert, and the tuple contents will be an integer
@@ -126,9 +122,10 @@ then the integer value, then a pointer to the string value.
 
 Function description:
 
-.. c:function:: ssize_t tnt_object_format(struct tnt_stream *s, const char *fmt, ...)
+.. cssclass:: highlight
+.. parsed-literal::
 
-.. _c_send_request:
+    ssize_t tnt_object_format(struct tnt_stream \*s, const char \*fmt, ...)
 
 **SEND REQUEST:** The database-manipulation requests are analogous to the
 requests in the box library.
@@ -136,7 +133,7 @@ requests in the box library.
 .. code-block:: c
 
     tnt_insert(tnt, 999, tuple);
-     tnt_flush(tnt);
+    tnt_flush(tnt);
 
 In this program the choice is to do an insert request, so
 the program passes the tnt_stream that was used for connection
@@ -144,12 +141,16 @@ the program passes the tnt_stream that was used for connection
 
 Function description:
 
-.. c:function:: tnt_insert(struct tnt_stream *s, uint32_t space, struct tnt_stream *tuple)
-.. c:function:: tnt_replace(struct tnt_stream *s, uint32_t space, struct tnt_stream *tuple)
-.. c:function:: tnt_select(struct tnt_stream *s, uint32_t space, uint32_t index, uint32_t limit, uint32_t offset, uint8_t iterator, struct tnt_stream *key)
-.. c:function:: ssize_t tnt_update(struct tnt_stream *s, uint32_t space, uint32_t index, struct tnt_stream *key, struct tnt_stream *ops)
+.. cssclass:: highlight
+.. parsed-literal::
 
-.. _c_get_reply:
+    ssize_t tnt_insert(struct tnt_stream \*s, uint32_t space, struct tnt_stream \*tuple)
+    ssize_t tnt_replace(struct tnt_stream \*s, uint32_t space, struct tnt_stream \*tuple)
+    ssize_t tnt_select(struct tnt_stream \*s, uint32_t space, uint32_t index,
+                       uint32_t limit, uint32_t offset, uint8_t iterator,
+                       struct tnt_stream \*key)
+    ssize_t tnt_update(struct tnt_stream \*s, uint32_t space, uint32_t index,
+                       struct tnt_stream \*key, struct tnt_stream \*ops)
 
 **GET REPLY:** For most requests the client will receive a reply containing some indication
 whether the result was successful, and a set of tuples.
@@ -157,18 +158,20 @@ whether the result was successful, and a set of tuples.
 .. code-block:: c
 
     struct tnt_reply reply;  tnt_reply_init(&reply);
-     tnt->read_reply(tnt, &reply);
-     if (reply.code != 0)
+    tnt->read_reply(tnt, &reply);
+    if (reply.code != 0)
        { printf("Insert failed %lu.\n", reply.code); }
 
-This program checks for success but does not decode the rest of the reply. |br|
+This program checks for success but does not decode the rest of the reply.
+
 Function description:
 
-.. c:function:: struct tnt_reply *tnt_reply_init(struct tnt_reply *r)
-.. c:function:: tnt->read_reply(struct tnt_stream *s, struct tnt_reply *r)
-.. c:function:: void tnt_reply_free(struct tnt_reply *r)
+.. cssclass:: highlight
+.. parsed-literal::
 
-.. _c_teardown:
+    struct tnt_reply \*tnt_reply_init(struct tnt_reply \*r)
+    tnt->read_reply(struct tnt_stream \*s, struct tnt_reply \*r)
+    void tnt_reply_free(struct tnt_reply \*r)
 
 **TEARDOWN:** When a session ends, the connection that was made with
 tnt_connect() should be closed and the objects that were made in the setup
@@ -177,15 +180,88 @@ should be destroyed.
 .. code-block:: c
 
     tnt_close(tnt);
-     tnt_stream_free(tuple);
-     tnt_stream_free(tnt);
+    tnt_stream_free(tuple);
+    tnt_stream_free(tnt);
 
 Function description:
 
-.. c:function:: tnt_close(struct tnt_stream *s)
-.. c:function:: tnt_stream_free(struct tnt_stream *s)
+.. cssclass:: highlight
+.. parsed-literal::
 
-The example program only shows one request and does not show all that's
+    void tnt_close(struct tnt_stream \*s)
+    void tnt_stream_free(struct tnt_stream \*s)
+
+A second example.
+Here is a complete C program that selects, using index key :code:`[99999]`, from
+space :code:`examples` via the high-level C API.
+To display the results the program uses functions in the
+`MsgPuck`_ library which allow decoding of `MessagePack`_  arrays.
+
+.. code-block:: c
+
+    #include <stdio.h>
+    #include <tarantool/tarantool.h>
+    #include <tarantool/tnt_net.h>
+    #include <tarantool/tnt_opt.h>
+
+    void main() {
+        struct tnt_stream *tnt = tnt_net(NULL);
+        tnt_set(tnt, TNT_OPT_URI, "localhost:3301");
+        if (tnt_connect(tnt) < 0) {
+            printf("Connection refused\n");
+            exit(1);
+        }
+        struct tnt_stream *tuple = tnt_object(NULL);
+        tnt_object_format(tuple, "[%d]", 99999); /* tuple = search key */
+        tnt_select(tnt, 999, 0, (2^32) - 1, 0, 0, tuple);
+        tnt_flush(tnt);
+        struct tnt_reply reply; tnt_reply_init(&reply);
+        tnt->read_reply(tnt, &reply);
+        if (reply.code != 0) {
+            printf("Select failed.\n");
+            exit(1);
+        }
+        char field_type;
+        field_type = mp_typeof(*reply.data);
+        if (field_type != MP_ARRAY) {
+            printf("no tuple array\n");
+            exit(1);
+        }
+        long unsigned int row_count;
+        uint32_t tuple_count = mp_decode_array(&reply.data);
+        printf("tuple count=%u\n", tuple_count);
+        unsigned int i, j;
+        for (i = 0; i < tuple_count; ++i) {
+            field_type = mp_typeof(*reply.data);
+            if (field_type != MP_ARRAY) {
+                printf("no field array\n");
+                exit(1);
+            }
+            uint32_t field_count = mp_decode_array(&reply.data);
+            printf("  field count=%u\n", field_count);
+            for (j = 0; j < field_count; ++j) {
+                field_type = mp_typeof(*reply.data);
+                if (field_type == MP_UINT) {
+                    uint64_t num_value = mp_decode_uint(&reply.data);
+                    printf("    value=%lu.\n", num_value);
+                } else if (field_type == MP_STR) {
+                    const char *str_value;
+                    uint32_t str_value_length;
+                    str_value = mp_decode_str(&reply.data, &str_value_length);
+                    printf("    value=%.*s.\n", str_value_length, str_value);
+                } else {
+                    printf("wrong field type\n");
+                    exit(1);
+                }
+            }
+        }
+        tnt_close(tnt);
+        tnt_stream_free(tuple);
+        tnt_stream_free(tnt);
+    }
+
+The example programs only shows two requests and do not show all that's
 necessary for good practice. For that, see http://github.com/tarantool/tarantool-c.
 
-.. _Queue managers on Tarantool: https://github.com/tarantool/queue
+.. _MsgPuck: http://rtsisyk.github.io/msgpuck/
+.. _MessagePack: https://en.wikipedia.org/wiki/MessagePack

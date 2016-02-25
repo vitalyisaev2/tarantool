@@ -1,47 +1,24 @@
-####################################################
-################# MACROS AND DEFAULTS ##############
-####################################################
-
-%{?scl:%global _scl_prefix /opt/tarantool}
-%{?scl:%scl_package tarantool}
-
-%define _source_filedigest_algorithm 0
-%define _binary_filedigest_algorithm 0
-
-%global debug_package %{nil}
-%global _enable_debug_package %{nil}
-%global __debug_install_post %{nil}
-%global __debug_package %{nil}
-
-Source1: VERSION
-%global build_version %(( cat %{SOURCE1} || git describe --long) | sed "s/[0-9]*\.[0-9]*\.[0-9]*-//" | sed "s/-[a-z 0-9]*//")
-%global git_hash %((cat %{SOURCE1} || git describe --long) | sed "s/.*-//")
-%global prod_version %((cat %{SOURCE1} || git describe --long) | sed "s/-[0-9]*-.*//")
-
-%if (0%{?fedora} >= 15 || 0%{?rhel} >= 7) && %{undefined _with_systemd}
-%global _with_systemd 1
+# Enable systemd for on RHEL >= 7 and Fedora >= 15
+%if (0%{?fedora} >= 15 || 0%{?rhel} >= 7)
+%bcond_without systemd
+%else
+%bcond_with systemd
 %endif
 
-%bcond_with    systemd
-
-BuildRequires: readline-devel
-
-%if 0%{?rhel} < 7 && 0%{?rhel} > 0
-BuildRequires: cmake28
-BuildRequires: devtoolset-2-toolchain
-BuildRequires: devtoolset-2-binutils-devel
-%else
 BuildRequires: cmake >= 2.8
 BuildRequires: gcc >= 4.5
-BuildRequires: binutils-devel
-%endif
-
+BuildRequires: coreutils
+BuildRequires: sed
+BuildRequires: readline-devel
+BuildRequires: libyaml-devel
+#BuildRequires: msgpuck-devel
 %if 0%{?fedora} > 0
+# pod2man is needed to build man pages
 BuildRequires: perl-podlators
 %endif
+Requires(pre): %{_sbindir}/useradd
+Requires(pre): %{_sbindir}/groupadd
 
-Requires(pre): /usr/sbin/useradd
-Requires(pre): /usr/sbin/groupadd
 %if %{with systemd}
 Requires(post): systemd
 Requires(preun): systemd
@@ -54,125 +31,100 @@ Requires(preun): chkconfig
 Requires(preun): initscripts
 %endif
 
-# Strange bug.
-# Fix according to http://www.jethrocarr.com/2012/05/23/bad-packaging-habits/
-BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+%bcond_without backtrace # enabled by default
 
-Name: %{?scl_prefix}tarantool
-Version: %{prod_version}
-Release: %{build_version}
-Group: Applications/Databases
-Summary: Tarantool - a NoSQL database in a Lua script
-Vendor: tarantool.org
-License: BSD
-Requires: readline
-Provides: %{?scl_prefix}tarantool-debuginfo
-Provides: %{?scl_prefix}tarantool-debug
-Requires: %{?scl_prefix}tarantool-common
-URL: http://tarantool.org
-Source0: %{version}.tar.gz
-%description
-Tarantool is a high performance in-memory NoSQL database. It supports
-replication, online backup, stored procedures in Lua.
-
-This package provides the server daemon and administration
-scripts.
-
-# Tarantool dev spec
-%package dev
-Summary: Tarantool C connector and header files
-Vendor: tarantool.org
-Group: Applications/Databases
-Requires: %{?scl_prefix}tarantool = %{version}-%{release}
-%description dev
-Tarantool is a high performance in-memory NoSQL database.
-It supports replication, online backup, stored procedures in Lua.
-
-This package provides Tarantool client libraries.
-
-%package common
-Summary: Tarantool common files
-Vendor: tarantool.org
-Group: Applications/Databases
-Provides: %{?scl_prefix}tarantool-common
-%if 0%{?rhel} != 5
-BuildArch: noarch
+%if %{with backtrace}
+# binutils and zlib are needed for stack traces in fiber.info()
+BuildRequires: binutils-devel
+BuildRequires: zlib-devel
+#
+# Disable stripping of /usr/bin/tarantool to allow the debug symbols
+# in runtime. Tarantool uses the debug symbols to display fiber's stack
+# traces in fiber.info().
+#
+%global debug_package %%{nil}
+# -fPIE break backtraces
+# https://github.com/tarantool/tarantool/issues/1262
+%undefine _hardened_build
 %endif
-Requires: %{?scl_prefix}tarantool
-%description common
-Tarantool is a high performance in-memory NoSQL database.
-It supports replication, online backup, stored procedures in Lua.
 
-This package provides common files
+# For tests
+%if (0%{?fedora} >= 22 || 0%{?rhel} >= 7)
+BuildRequires: python >= 2.7
+BuildRequires: python-six >= 1.9.0
+BuildRequires: python-gevent >= 1.0
+BuildRequires: python-yaml >= 3.0.9
+%endif
 
-##################################################################
+Name: tarantool
+# ${major}.${major}.${minor}.${patch}, e.g. 1.6.8.175
+# Version is updated automaically using git describe --long --always
+Version: 1.6.8.0
+Release: 1%{?dist}
+Group: Applications/Databases
+Summary: In-memory database and Lua application server
+License: BSD
+
+Provides: tarantool-debuginfo = %{version}-%{release}
+Provides: tarantool-common = %{version}-%{release}
+Obsoletes: tarantool-common < 1.6.8.434-1
+URL: http://tarantool.org
+Source0: http://tarantool.org/dist/1.6/tarantool-%{version}.tar.gz
+%description
+Tarantool is a high performance in-memory NoSQL database and Lua
+application server. Tarantool supports replication, online backup and
+stored procedures in Lua.
+
+This package provides the server daemon and admin tools.
+
+%package devel
+Summary: Server development files for %{name}
+Group: Applications/Databases
+Requires: %{name}%{?_isa} = %{version}-%{release}
+%description devel
+Tarantool is a high performance in-memory NoSQL database and Lua
+application server. Tarantool supports replication, online backup and
+stored procedures in Lua.
+
+This package provides server development files needed to create
+C and Lua/C modules.
 
 %prep
-%setup -q -c tarantool-%{version}
+%setup -q -n %{name}-%{version}
 
 %build
-[ -d tarantool-%{version}-%{build_version}-%{git_hash}-src ] && cd tarantool-%{version}-%{build_version}-%{git_hash}-src
-# https://fedoraproject.org/wiki/Packaging:RPMMacros
-
-%{lua:
-    local function is_rhel_old()
-        local version = tonumber(rpm.expand('0%{?rhel}'))
-        return (version < 7 and version > 0)
-    end
-    function wrap_with_toolset(cmd)
-        local cmd = rpm.expand(cmd)
-        local devtoolset = 'scl enable devtoolset-2 %q\n'
-        if is_rhel_old() then
-            return string.format(devtoolset, cmd)
-        end
-        return cmd
-    end
-    local function cmake_key_value(key, value)
-        return " -D"..key.."="..value
-    end
-    local function dev_with (obj, flag)
-        local status = "OFF"
-        if tonumber(rpm.expand("%{with "..obj.."}")) ~= 0 then
-            status = "ON"
-        end
-        return cmake_key_value(flag, status)
-    end
-    local function dev_with_kv (obj, key, value)
-        if tonumber(rpm.expand("%{with "..obj.."}")) ~= 0 then
-            return cmake_key_value(key, value)
-        end
-        return ""
-    end
-    local cmd = 'cmake'
-    if is_rhel_old() then
-        cmd = 'cmake28'
-    end
-    cmd = cmd .. ' . '
-        .. cmake_key_value('CMAKE_BUILD_TYPE', 'RelWithDebInfo')
-        .. cmake_key_value('ENABLE_BACKTRACE', 'ON')
-        .. cmake_key_value('CMAKE_INSTALL_PREFIX', '%{_prefix}')
-        .. cmake_key_value('CMAKE_INSTALL_BINDIR', '%{_bindir}')
-        .. cmake_key_value('CMAKE_INSTALL_LIBDIR', '%{_libdir}')
-        .. cmake_key_value('CMAKE_INSTALL_LIBEXECDIR', '%{_libexecdir}')
-        .. cmake_key_value('CMAKE_INSTALL_SBINDIR', '%{_sbindir}')
-        .. cmake_key_value('CMAKE_INSTALL_SHAREDSTATEDIR', '%{_sharedstatedir}')
-        .. cmake_key_value('CMAKE_INSTALL_DATADIR', '%{_datadir}')
-        .. cmake_key_value('CMAKE_INSTALL_INCLUDEDIR', '%{_includedir}')
-        .. cmake_key_value('CMAKE_INSTALL_INFODIR', '%{_infodir}')
-        .. cmake_key_value('CMAKE_INSTALL_MANDIR', '%{_mandir}')
-        .. cmake_key_value('CMAKE_INSTALL_LOCALSTATEDIR', '%{_localstatedir}')
-        .. ' %{!?scl:-DCMAKE_INSTALL_SYSCONFDIR=%{_sysconfdir}}'
-        .. ' %{!?scl:-DENABLE_RPM=ON}'
-        .. ' %{?scl:-DENABLE_RPM_SCL=ON}'
-        .. dev_with('systemd', 'WITH_SYSTEMD')
-        .. dev_with_kv('systemd', 'SYSTEMD_SERVICES_INSTALL_DIR', '%{_unitdir}')
-
-    print(wrap_with_toolset(cmd))}
-%{lua:print(wrap_with_toolset('make %{?_smp_mflags}\n'))}
+# RHBZ #1301720: SYSCONFDIR an LOCALSTATEDIR must be specified explicitly
+%cmake . -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+         -DCMAKE_INSTALL_LOCALSTATEDIR:PATH=%{_localstatedir} \
+         -DCMAKE_INSTALL_SYSCONFDIR:PATH=%{_sysconfdir} \
+         -DENABLE_BUNDLED_LIBYAML:BOOL=OFF \
+%if %{with backtrace}
+         -DENABLE_BACKTRACE:BOOL=ON \
+%else
+         -DENABLE_BACKTRACE:BOOL=OFF \
+%endif
+%if %{with systemd}
+         -DWITH_SYSTEMD:BOOL=ON \
+         -DSYSTEMD_UNIT_DIR:PATH=%{_unitdir} \
+         -DSYSTEMD_TMPFILES_DIR:PATH=%{_tmpfilesdir} \
+%endif
+         -DENABLE_DIST:BOOL=ON
+make %{?_smp_mflags}
 
 %install
-[ -d tarantool-%{version}-%{build_version}-%{git_hash}-src ] && cd tarantool-%{version}-%{build_version}-%{git_hash}-src
-make VERBOSE=1 DESTDIR=%{buildroot} install
+%make_install
+# %%doc and %%license macroses are used instead
+rm -rf %{buildroot}%{_datarootdir}/doc/tarantool/
+
+%check
+%if (0%{?fedora} >= 22 || 0%{?rhel} >= 7)
+# https://github.com/tarantool/tarantool/issues/1227
+echo "self.skip = True" > ./test/app/socket.skipcond
+# https://github.com/tarantool/tarantool/issues/1322
+echo "self.skip = True" > ./test/app/digest.skipcond
+# run a safe subset of the test suite
+cd test && ./test-run.py unit/ app/ app-tap/ box/ box-tap/ engine/ sophia/
+%endif
 
 %pre
 /usr/sbin/groupadd -r tarantool > /dev/null 2>&1 || :
@@ -184,80 +136,108 @@ make VERBOSE=1 DESTDIR=%{buildroot} install
     -c "Tarantool Server" tarantool > /dev/null 2>&1 || :
 %endif
 
-%post common
-mkdir -m 0755 -p %{_var}/run/tarantool/
-chown tarantool:tarantool %{_var}/run/tarantool/
-mkdir -m 0755 -p %{_var}/log/tarantool/
-chown tarantool:tarantool %{_var}/log/tarantool/
-mkdir -m 0755 -p %{_var}/lib/tarantool/
-chown tarantool:tarantool %{_var}/lib/tarantool/
-mkdir -m 0755 -p %{_sysconfdir}/tarantool/instances.enabled/
-mkdir -m 0755 -p %{_sysconfdir}/tarantool/instances.available/
-
+%post
 %if %{with systemd}
-%systemd_post tarantool.service
+%tmpfiles_create tarantool.conf
+%systemd_post tarantool@.service
 %else
-chkconfig --add tarantool
-/sbin/service tarantool start
+chkconfig --add tarantool || :
+service tarantool start || :
 %endif
 
-%preun common
+%preun
 %if %{with systemd}
-%systemd_preun tarantool.service
+%systemd_preun tarantool@.service
 %else
-/sbin/service tarantool stop
+service tarantool stop
 chkconfig --del tarantool
 %endif
 
-%postun common
+%postun
 %if %{with systemd}
-%systemd_postun_with_restart tarantool.service
+%systemd_postun_with_restart tarantool@.service
 %endif
 
 %files
-%defattr(-,root,root,-)
+%{_bindir}/tarantool
+%{_mandir}/man1/tarantool.1*
+%doc README.md
+%{!?_licensedir:%global license %doc}
+%license LICENSE AUTHORS
 
-"%{_bindir}/tarantool"
+%{_bindir}/tarantoolctl
+%{_mandir}/man1/tarantoolctl.1*
+%config(noreplace) %{_sysconfdir}/sysconfig/tarantool
+%dir %{_sysconfdir}/tarantool
+%dir %{_sysconfdir}/tarantool/instances.available
+%config(noreplace) %{_sysconfdir}/tarantool/instances.available/example.lua
+# Use 0750 for database files
+%attr(0750,tarantool,tarantool) %dir %{_localstatedir}/lib/tarantool/
+%attr(0750,tarantool,tarantool) %dir %{_localstatedir}/log/tarantool/
+%config(noreplace) %{_sysconfdir}/logrotate.d/tarantool
+# tarantool package should own module directories
+%dir %{_libdir}/tarantool
+%dir %{_datadir}/tarantool
 
-%dir "%{_datadir}/doc/tarantool"
-"%{_datadir}/doc/tarantool/README.md"
-"%{_datadir}/doc/tarantool/LICENSE"
-
-"%{_mandir}/man1/tarantool.1.gz"
-
-%files dev
-%defattr(-,root,root,-)
-%dir "%{_includedir}/tarantool"
-"%{_includedir}/tarantool/lauxlib.h"
-"%{_includedir}/tarantool/luaconf.h"
-"%{_includedir}/tarantool/lua.h"
-"%{_includedir}/tarantool/lua.hpp"
-"%{_includedir}/tarantool/luajit.h"
-"%{_includedir}/tarantool/lualib.h"
-"%{_includedir}/tarantool/module.h"
-
-%files common
-%defattr(-,root,root,-)
-"%{_bindir}/tarantoolctl"
-"%{_mandir}/man1/tarantoolctl.1.gz"
-"%{_sysconfdir}/sysconfig/tarantool"
-%dir "%{_sysconfdir}/tarantool"
-%dir "%{_sysconfdir}/tarantool/instances.available"
-"%{_sysconfdir}/tarantool/instances.available/example.lua"
 %if %{with systemd}
-%dir "%{_libdir}/tarantool/"
-"%{_unitdir}/tarantool.service"
-"%{_libdir}/tarantool/tarantool.init"
+%doc README.systemd.md
+%{_unitdir}/tarantool@.service
+%{_tmpfilesdir}/tarantool.conf
 %else
-"%{_sysconfdir}/init.d/tarantool"
+%{_sysconfdir}/init.d/tarantool
+%dir %{_sysconfdir}/tarantool/instances.enabled
+%attr(-,tarantool,tarantool) %dir %{_localstatedir}/run/tarantool/
 %endif
 
+%files devel
+%dir %{_includedir}/tarantool
+%{_includedir}/tarantool/lauxlib.h
+%{_includedir}/tarantool/luaconf.h
+%{_includedir}/tarantool/lua.h
+%{_includedir}/tarantool/lua.hpp
+%{_includedir}/tarantool/luajit.h
+%{_includedir}/tarantool/lualib.h
+%{_includedir}/tarantool/module.h
+
 %changelog
-* Tue Apr 28 2015 roman@tarantool.org <roman@tarantool.org> 1.0-3
+* Tue Feb 09 2016 Roman Tsisyk <roman@tarantool.org> 1.6.8.462-1
+- Enable tests
+
+* Fri Feb 05 2016 Roman Tsisyk <roman@tarantool.org> 1.6.8.451-1
+- Add coreutils, make and sed to BuildRequires
+
+* Wed Feb 03 2016 Roman Tsisyk <roman@tarantool.org> 1.6.8.433-1
+- Obsolete tarantool-common package
+
+* Thu Jan 21 2016 Roman Tsisyk <roman@tarantool.org> 1.6.8.376-1
+- Implement proper support of multi-instance management using systemd
+
+* Sat Jan 9 2016 Roman Tsisyk <roman@tarantool.org> 1.6.8.0-1
+- Change naming scheme to include a postrelease number to Version
+- Fix arch-specific paths in tarantool-common
+- Rename tarantool-dev to tarantool-devel
+- Use system libyaml
+- Remove Vendor
+- Remove SCL support
+- Remove devtoolkit support
+- Remove Lua scripts
+- Remove quotes from %%files
+- Disable hardening to fix backtraces
+- Fix permissions for tarantoolctl directories
+- Comply with http://fedoraproject.org/wiki/Packaging:DistTag
+- Comply with http://fedoraproject.org/wiki/Packaging:LicensingGuidelines
+- Comply with http://fedoraproject.org/wiki/Packaging:Tmpfiles.d
+- Comply with the policy for log files
+- Comply with the policy for man pages
+- Other changes according to #1293100 review
+
+* Tue Apr 28 2015 Roman Tsisyk <roman@tarantool.org> 1.6.5.0-1
 - Remove sql-module, pg-module, mysql-module
-* Fri Jun 06 2014 Eugine Blikh <bigbes@tarantool.org> 1.0-2
+
+* Fri Jun 06 2014 Eugine Blikh <bigbes@tarantool.org> 1.6.3.0-1
 - Add SCL support
 - Add --with support
 - Add dependencies
-* Mon May 20 2013 Dmitry Simonenko <support@tarantool.org> 1.0-1
+
+* Mon May 20 2013 Dmitry Simonenko <support@tarantool.org> 1.5.1.0-1
 - Initial version of the RPM spec

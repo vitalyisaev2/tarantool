@@ -70,9 +70,10 @@ IPROTO is a binary request/response protocol.
     64                  107              127
 
 The server begins the dialogue by sending a fixed-size (128 bytes) text greeting
-to the client. The first 64 bytes of the greeting contain server version. The
-second 44 bytes contain a base64-encoded random string, to use in authentication
-packet. And it ends with 20 bytes of spaces.
+to the client. The greeting always contains two 64 byte lines of ASCII text, each
+line ending with newline character ('\\n'). The first line contains the server
+version and protocol type. The second line contains up to 44 bytes of base64-encoded
+random string, to use in authentication packet, and ends with up to 23 spaces.
 
 ================================================================================
                          Unified packet structure
@@ -167,6 +168,8 @@ may be missing. Such is the case, for example, in <ping> request. ``schema_id``
 may be absent in request's header, that means that there'll be no version
 checking, but it must be present in the response. If ``schema_id`` is sent in
 the header, then it'll be checked.
+
+.. _iproto-authentication:
 
 ================================================================================
                             Authentication

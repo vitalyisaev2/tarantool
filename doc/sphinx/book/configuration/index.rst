@@ -38,7 +38,7 @@ Tarantool is started by entering the command:
     .. code-block:: console
 
         $ ./tarantool --version
-        Tarantool 1.6.3-439-g7e1011b
+        Tarantool 1.6.8-235-gb948587
         Target: Linux-x86_64-Debug
         ...
 
@@ -86,6 +86,9 @@ If username:password is omitted, then 'guest' is assumed. Some examples:
 .. _generic syntax for a URI schema: http://en.wikipedia.org/wiki/URI_scheme#Generic_syntax
 
     .. container:: table
+
+        .. rst-class:: left-align-column-1
+        .. rst-class:: left-align-column-2
 
         +-----------------------------+------------------------------+
         | URI fragment                | Example                      |

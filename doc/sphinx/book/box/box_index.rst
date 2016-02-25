@@ -30,8 +30,6 @@ API is a direct binding to corresponding methods of index objects of type
 
         * :samp:`{index_object}` = an :ref:`object reference <object-reference>`.
 
-        :rtype: string
-
     .. data:: parts
 
         An array describing index key fields.
@@ -95,9 +93,9 @@ API is a direct binding to corresponding methods of index objects of type
 
         Complexity Factors: Index size, Index type, Number of tuples accessed.
 
-        A search-value can be a number (for example :codenormal:`1234`), a string
-        (for example :codenormal:`'abcd'`),
-        or a table of numbers and strings (for example :codenormal:`{1234,'abcd'}`).
+        A search-value can be a number (for example ``1234``), a string
+        (for example ``'abcd'``),
+        or a table of numbers and strings (for example ``{1234, 'abcd'}``).
         Each part of a search-value will be compared to each part of an index key.
 
         .. container:: table
@@ -107,15 +105,19 @@ API is a direct binding to corresponding methods of index objects of type
             Note: Formally the logic for TREE index searches is: |br|
             comparison-operator is = or >= or > or <= or < depending on iterator-type |br|
             for i = 1 to number-of-parts-of-search-value |br|
-            |nbsp|  if search-value-part[i] is ``nil`` |br|
-            |nbsp|  or search-value-part[i] <comparison-operator> index-key-part[i] is true |br|
+            |nbsp|  if (search-value-part[i] is ``nil`` and <comparison-operator> is "=") |br|
+            |nbsp|  or (search-value-part[i] <comparison-operator> index-key-part[i] is true) |br|
             |nbsp|  then comparison-result[i] is true |br|
             if all comparison-results are true, then search-value "matches" index key. |br|
-            Notice how, according to this logic, regardless what the iterator type is,
-            a comparison is always true when a search-value-part is ``nil`` or is missing.
-            This behavior applies for the memtx storage engine only
-            (the sophia storage engine does not allow search-value-parts to be ``nil`` or missing).
-            This behavior of searches with nil is subject to change.
+            Notice how, according to this logic, regardless what the index-key-part contains,
+            the comparison-result for equality is always true when a search-value-part is ``nil``
+            or is missing. This behavior of searches with nil is subject to change.
+
+            Note re storage engine: sophia does not allow search-value-parts to be ``nil`` or missing.
+
+            .. rst-class:: left-align-column-1
+            .. rst-class:: left-align-column-2
+            .. rst-class:: left-align-column-3
 
             +---------------+-----------+---------------------------------------------+
             | Type          | Arguments | Description                                 |
@@ -130,6 +132,8 @@ API is a direct binding to corresponding methods of index objects of type
             | or 'REQ'      | value     | ``box.index.EQ``.                           |
             |               |           | Tuples are returned in descending order by  |
             |               |           | index key.                                  |
+            |               |           | Note re storage engine: sophia does not     |
+            |               |           | REQ.                                        |
             +---------------+-----------+---------------------------------------------+
             | box.index.GT  | search    | The comparison operator is '>' (greater     |
             | or 'GT'       | value     | than).                                      |
@@ -166,6 +170,10 @@ API is a direct binding to corresponding methods of index objects of type
 
             **Iterator types for HASH indexes**
 
+            .. rst-class:: left-align-column-1
+            .. rst-class:: left-align-column-2
+            .. rst-class:: left-align-column-3
+
             +---------------+-----------+------------------------------------------------+
             | Type          | Arguments | Description                                    |
             +===============+===========+================================================+
@@ -194,6 +202,10 @@ API is a direct binding to corresponding methods of index objects of type
             +---------------+-----------+------------------------------------------------+
 
             **Iterator types for BITSET indexes**
+
+            .. rst-class:: left-align-column-1
+            .. rst-class:: left-align-column-2
+            .. rst-class:: left-align-column-3
 
             +----------------------------+-----------+----------------------------------------------+
             | Type                       | Arguments | Description                                  |
@@ -226,6 +238,10 @@ API is a direct binding to corresponding methods of index objects of type
             .. _rtree-iterator:
 
             **Iterator types for RTREE indexes**
+
+            .. rst-class:: left-align-column-1
+            .. rst-class:: left-align-column-2
+            .. rst-class:: left-align-column-3
 
             +--------------------+-----------+---------------------------------------------------------+
             | Type               | Arguments | Description                                             |
@@ -459,6 +475,8 @@ API is a direct binding to corresponding methods of index objects of type
             - - ['Tuple with bit value = 01', 1]
             ...
 
+    .. _index_min:
+
     .. method:: min([key-value])
 
         Find the minimum value in the specified index.
@@ -477,6 +495,8 @@ API is a direct binding to corresponding methods of index objects of type
 
         Complexity Factors: Index size, Index type.
 
+        Note re storage engine: sophia does not support ``min()``.
+
         **Example:**
 
         .. code-block:: tarantoolsession
@@ -485,6 +505,8 @@ API is a direct binding to corresponding methods of index objects of type
             ---
             - ['Alpha!', 55, 'This is the first tuple!']
             ...
+
+    .. _index_max:
 
     .. method:: max([key-value])
 
@@ -504,6 +526,8 @@ API is a direct binding to corresponding methods of index objects of type
 
         Complexity Factors: Index size, Index type.
 
+        Note re storage engine: sophia does not support ``max()``.
+
         **Example:**
 
         .. code-block:: tarantoolsession
@@ -512,6 +536,8 @@ API is a direct binding to corresponding methods of index objects of type
             ---
             - ['Gamma!', 55, 'This is the third tuple!']
             ...
+
+    .. _index_random:
 
     .. method:: random(random-value)
 
@@ -529,6 +555,8 @@ API is a direct binding to corresponding methods of index objects of type
 
         Complexity Factors: Index size, Index type.
 
+        Note re storage engine: sophia does not support ``random()``.
+
         **Example:**
 
         .. code-block:: tarantoolsession
@@ -537,6 +565,8 @@ API is a direct binding to corresponding methods of index objects of type
             ---
             - ['Beta!', 66, 'This is the second tuple!']
             ...
+
+    .. _index_count:
 
     .. method:: count(key-value, options)
 
@@ -554,6 +584,8 @@ API is a direct binding to corresponding methods of index objects of type
         :return: the number of matching index keys. The ``count`` function
                 is only applicable for the memtx storage engine.
         :rtype:  number
+
+        Note re storage engine: sophia does not support ``count()``.
 
         **Example:**
 
@@ -604,6 +636,8 @@ API is a direct binding to corresponding methods of index objects of type
         :return: the deleted tuple.
         :rtype:  tuple
 
+    .. _index_alter:
+
     .. method:: alter({options})
 
         Alter an index.
@@ -619,6 +653,8 @@ API is a direct binding to corresponding methods of index objects of type
         Possible errors: Index does not exist, or
         the first index cannot be changed to {unique = false}, or
         the alter function is only applicable for the memtx storage engine.
+
+        Note re storage engine: sophia does not support ``alter()``.
 
         **Example:**
 

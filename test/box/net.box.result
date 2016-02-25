@@ -16,6 +16,10 @@ env = require('test_run')
 test_run = env.new()
 ---
 ...
+test_run:cmd("push filter ".."'\\.lua.*:[0-9]+: ' to '.lua...\"]:<line>: '")
+---
+- true
+...
 LISTEN = require('uri').parse(box.cfg.listen)
 ---
 ...
@@ -300,8 +304,7 @@ cn.space.net_box_test_space:insert{234, 1,2,3}
 ...
 cn.space.net_box_test_space.insert{234, 1,2,3}
 ---
-- error: '[string "-- net_box.lua (internal file)..."]:155: Use space:method(...)
-    instead space.method(...)'
+- error: 'builtin/box/net_box.lua..."]:<line>: Use space:method(...) instead space.method(...)'
 ...
 cn.space.net_box_test_space:replace{354, 1,2,3}
 ---
@@ -560,7 +563,9 @@ cn:call('pause')
 ...
 cn:call('test_foo', 'a', 'b', 'c')
 ---
-- error: Tuple/Key must be MsgPack array
+- - [{'a': 1}]
+  - [{'b': 2}]
+  - ['c']
 ...
 -- call
 remote.self:call('test_foo', 'a', 'b', 'c')
@@ -571,7 +576,9 @@ remote.self:call('test_foo', 'a', 'b', 'c')
 ...
 cn:call('test_foo', 'a', 'b', 'c')
 ---
-- error: Tuple/Key must be MsgPack array
+- - [{'a': 1}]
+  - [{'b': 2}]
+  - ['c']
 ...
 -- long replies
 function long_rep() return { 1,  string.rep('a', 5000) } end
@@ -724,28 +731,41 @@ cnc.console ~= nil
 ...
 cnc:console('return 1, 2, 3, "string", nil')
 ---
-- |
-  ---
+- '---
+
   - 1
+
   - 2
+
   - 3
+
   - string
+
   - null
+
   ...
+
+'
 ...
 cnc:console('error("test")')
 ---
-- |
-  ---
+- '---
+
   - error: test
+
   ...
+
+'
 ...
 cnc:console('a = {1, 2, 3, 4}; return a[3]')
 ---
-- |
-  ---
+- '---
+
   - 3
+
   ...
+
+'
 ...
 -- #545 user or password is not defined
 remote:new(LISTEN.host, LISTEN.service, { user = 'test' })
@@ -918,27 +938,13 @@ _ = fiber.create(
 );
 ---
 ...
-while true do
-   local line = file_log:read(2048)
-   if line ~= nil then
-      if string.match(line, "ER_UNKNOWN") == nil then
-         return "Success"
-      else
-         return "Failure"
-      end
-   end
-   fiber.sleep(0.01)
-end;
----
-- Success
-...
 test_run:cmd("setopt delimiter ''");
 ---
 - true
 ...
-file_log:close()
+test_run:grep_log("default", "ER_NO_SUCH_PROC")
 ---
-- true
+- ER_NO_SUCH_PROC
 ...
 -- gh-983 selecting a lot of data crashes the server or hangs the
 -- connection
@@ -1012,4 +1018,8 @@ box.space.test:drop()
 ...
 box.schema.user.revoke('guest', 'read,write,execute', 'universe')
 ---
+...
+test_run:cmd("clear filter")
+---
+- true
 ...
