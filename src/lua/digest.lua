@@ -1,20 +1,11 @@
 -- digest.lua (internal file)
 
 local ffi = require 'ffi'
+local buffer = require('buffer')
 
 ffi.cdef[[
-    /* from openssl/sha.h */
-    unsigned char *SHA(const unsigned char *d, size_t n, unsigned char *md);
-    unsigned char *SHA1(const unsigned char *d, size_t n, unsigned char *md);
-    unsigned char *SHA224(const unsigned char *d, size_t n,unsigned char *md);
-    unsigned char *SHA256(const unsigned char *d, size_t n,unsigned char *md);
-    unsigned char *SHA384(const unsigned char *d, size_t n,unsigned char *md);
-    unsigned char *SHA512(const unsigned char *d, size_t n,unsigned char *md);
-    unsigned char *MD4(const unsigned char *d, size_t n, unsigned char *md);
+    /* internal implementation */
     unsigned char *SHA1internal(const unsigned char *d, size_t n, unsigned char *md);
-
-    /* from openssl/md5.h */
-    unsigned char *MD5(const unsigned char *d, size_t n, unsigned char *md);
 
     /* from libc */
     int snprintf(char *str, size_t size, const char *format, ...);
@@ -36,44 +27,76 @@ ffi.cdef[[
     void PMurHash32_Process(uint32_t *ph1, uint32_t *pcarry, const void *key, int len);
     uint32_t PMurHash32_Result(uint32_t h1, uint32_t carry, uint32_t total_length);
     uint32_t PMurHash32(uint32_t seed, const void *key, int len);
+
+    /* from openssl/evp.h */
+    void OpenSSL_add_all_digests();
+    void OpenSSL_add_all_ciphers();
+    typedef void ENGINE;
+
+    typedef struct {} EVP_MD_CTX;
+    typedef struct {} EVP_MD;
+    EVP_MD_CTX *EVP_MD_CTX_create(void);
+    void EVP_MD_CTX_destroy(EVP_MD_CTX *ctx);
+    int EVP_DigestInit_ex(EVP_MD_CTX *ctx, const EVP_MD *type, ENGINE *impl);
+    int EVP_DigestUpdate(EVP_MD_CTX *ctx, const void *d, size_t cnt);
+    int EVP_DigestFinal_ex(EVP_MD_CTX *ctx, unsigned char *md, unsigned int *s);
+    const EVP_MD *EVP_get_digestbyname(const char *name);
+
+    typedef struct {} EVP_CIPHER_CTX;
+    typedef struct {} EVP_CIPHER;
+    EVP_CIPHER_CTX *EVP_CIPHER_CTX_new();
+    void EVP_CIPHER_CTX_free(EVP_CIPHER_CTX *ctx);
+
+    int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher,
+                          ENGINE *impl, const unsigned char *key,
+                          const unsigned char *iv, int enc);
+    int EVP_CipherUpdate(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl,
+                     const unsigned char *in, int inl);
+    int EVP_CipherFinal_ex(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl);
+    int EVP_CIPHER_CTX_cleanup(EVP_CIPHER_CTX *ctx);
+
+    int EVP_CIPHER_block_size(const EVP_CIPHER *cipher);
+    const EVP_CIPHER *EVP_get_cipherbyname(const char *name);
 ]]
 
 local ssl
 if ssl == nil then
     local variants = {
-        'libssl.so.10',
-        'libssl.so.1.0.0',
-        'libssl.so.0.9.8',
-        'libssl.so',
+        'ssl.so.10',
+        'ssl.so.1.0.0',
+        'ssl.so.0.9.8',
+        'ssl.so',
         'ssl',
     }
 
     for _, libname in pairs(variants) do
         pcall(function() ssl = ffi.load(libname) end)
         if ssl ~= nil then
+            ssl.OpenSSL_add_all_digests()
+            ssl.OpenSSL_add_all_ciphers()
             break
         end
     end
 end
 
-local def = {
-    sha     = { 'SHA',    20 },
-    sha224  = { 'SHA224', 28 },
-    sha256  = { 'SHA256', 32 },
-    sha384  = { 'SHA384', 48 },
-    sha512  = { 'SHA512', 64 },
-    md5     = { 'MD5',    16 },
-    md4     = { 'MD4',    16 },
+local digest_shortcuts = {
+    sha     = 'SHA',
+    sha224  = 'SHA224',
+    sha256  = 'SHA256',
+    sha384  = 'SHA384',
+    sha512  = 'SHA512',
+    md5     = 'MD5',
+    md4     = 'MD4',
 }
 
 local hexres = ffi.new('char[129]')
 
-local function tohex(r, size)
-    for i = 0, size - 1 do
+local function str_to_hex(r)
+    for i = 0, r:len() - 1 do
         ffi.C.snprintf(hexres + i * 2, 3, "%02x",
-            ffi.cast('unsigned int', r[i]))
+            ffi.cast('unsigned char', r:byte(i + 1)))
     end
-    return ffi.string(hexres, size * 2)
+    return ffi.string(hexres, r:len() * 2)
 end
 
 local PMurHash
@@ -164,6 +187,147 @@ setmetatable(CRC32, {
     end
 })
 
+local function digest_gc(ctx)
+    ssl.EVP_MD_CTX_destroy(ctx)
+end
+
+local function digest_new()
+    local ctx = ssl.EVP_MD_CTX_create()
+    if ctx == nil then
+        return error('Can\'t create digest ctx')
+    end
+    ffi.gc(ctx, digest_gc)
+    local self = setmetatable({}, digest_mt)
+    self.ctx = ctx
+    self.buf = buffer.ibuf(64)
+    self.initialized = false
+    self.outl = ffi.new('int[1]')
+    return self
+end
+
+local function digest_init(ctx, name)
+    local digest = ssl.EVP_get_digestbyname(name);
+    if digest == nil then
+        return error('Can\'t find digest ' .. name)
+    end
+    if ssl.EVP_DigestInit_ex(ctx.ctx, digest, nil) ~= 1 then
+        return error('Can\'t init digest')
+    end
+    ctx.initialized = true
+end
+
+local function digest_update(ctx, input)
+    if not ctx.initialized then
+        return error('Digest not initialized')
+    end
+    if ssl.EVP_DigestUpdate(ctx.ctx, input, input:len()) ~= 1 then
+        return error('Can\'t update digest')
+    end
+end
+
+local function digest_final(ctx)
+    if not ctx.initialized then
+        return error('Digest not initialized')
+    end
+    if ssl.EVP_DigestFinal_ex(ctx.ctx, ctx.buf.wpos, ctx.outl) ~= 1 then
+        return error('Can\'t final digest')
+    end
+    return ffi.string(ctx.buf.wpos, ctx.outl[0])
+end
+
+local function digest_free(ctx)
+    ssl.EVP_MD_CTX_destroy(ctx.ctx)
+    ffi.gc(ctx.ctx, nil)
+end
+
+digest_mt = {
+    __index = {
+          init = digest_init,
+          update = digest_update,
+          final = digest_final,
+          free = digest_free
+    }
+}
+
+local function cipher_gc(ctx)
+    ssl.EVP_CIPHER_CTX_free(ctx)
+end
+
+local function cipher_new(enc)
+    local ctx = ssl.EVP_CIPHER_CTX_new()
+    if ctx == nil then
+        return error('Can\'t create cipher ctx')
+    end
+    ffi.gc(ctx, cipher_gc) 
+    local self = setmetatable({}, cipher_mt)
+    self.ctx = ctx
+    self.enc = enc
+    self.buf = buffer.ibuf()
+    self.block_size = nil
+    self.initialized = false
+    self.outl = ffi.new('int[1]')
+    return self
+end
+
+local function encrypt_new(name)
+    return cipher_new(1)
+end
+
+local function decrypt_new(name)
+    return cipher_new(0)
+end
+
+local function cipher_init(ctx, name, key, iv)
+    local  ciph = ssl.EVP_get_cipherbyname(name)
+    if ciph == nil then
+        return error('Can\'t find cipher ' .. name)
+    end
+    ctx.block_size = ssl.EVP_CIPHER_block_size(ciph)
+    if ssl.EVP_CipherInit_ex(ctx.ctx, ciph, nil, key, iv, ctx.enc) ~= 1 then
+        return error('Can\'t init cipher')
+    end
+    ctx.initialized = true
+end
+
+local function cipher_update(ctx, input)
+    if not ctx.initialized then
+        return error('Cipher not initialized')
+    end
+    local wpos = ctx.buf:reserve(input:len() + ctx.block_size - 1)
+    if ssl.EVP_CipherUpdate(ctx.ctx, wpos, ctx.outl, input, input:len()) ~= 1 then
+        return error('Can\'t update cipher')
+    end
+    return ffi.string(wpos, ctx.outl[0])
+end
+
+local function cipher_final(ctx)
+    if not ctx.initialized then
+        return error('Cipher not initialized')
+    end
+    local wpos = ctx.buf:reserve(ctx.block_size - 1)
+    if ssl.EVP_CipherFinal_ex(ctx.ctx, wpos, ctx.outl) ~= 1 then
+        return error('Can\'t final cipher')
+    end
+    ctx.initialized = false
+    return ffi.string(wpos, ctx.outl[0])
+end
+
+local function cipher_free(ctx)
+    ssl.EVP_CIPHER_CTX_free(ctx.ctx)
+    ffi.gc(ctx.ctx, nil)
+    ctx.buf:reset()
+end
+
+cipher_mt = {
+    __index = {
+          init = cipher_init,
+          update = cipher_update,
+          final = cipher_final,
+          free = cipher_free
+    }
+}
+
+
 local m = {
     base64_encode = function(bin)
         if type(bin) ~= 'string' then
@@ -211,7 +375,7 @@ local m = {
             str = tostring(str)
         end
         local r = ffi.C.SHA1internal(str, #str, nil)
-        return tohex(r, 20)
+        return str_to_hex(ffi.string(r, 20))
     end,
 
     guava = function(state, buckets)
@@ -227,14 +391,37 @@ local m = {
         return ffi.string(buf, n)
     end,
 
-    murmur = PMurHash
+    murmur = PMurHash,
+
+    digest_ctx = digest_new,
+    digest = function (name, str) 
+        local ctx = digest_new()
+        ctx:init(name)
+        ctx:update(str)
+        local res = ctx:final()
+        ctx:free()
+        return res
+    end,
+    encrypt_ctx = encrypt_new,
+    encrypt = function(name, str, key, iv)
+        local ctx = encrypt_new()
+        ctx:init(name, key, iv)
+        local res = ctx:update(str) .. ctx:final()
+        ctx:free()
+        return res
+    end,
+    decrypt_ctx = decrypt_new,
+    decrypt = function(name, str, key, iv)
+        local ctx = decrypt_new()
+        ctx:init(name, key, iv)
+        local res = ctx:update(str) .. ctx:final()
+        ctx:free()
+        return res
+    end
 }
 
 if ssl ~= nil then
-
-    for pname, df in pairs(def) do
-        local hfunction = df[1]
-        local hsize = df[2]
+    for pname, hfunction in pairs(digest_shortcuts) do
 
         m[ pname ] = function(str)
             if str == nil then
@@ -242,8 +429,7 @@ if ssl ~= nil then
             else
                 str = tostring(str)
             end
-            local r = ssl[hfunction](str, string.len(str), nil)
-            return ffi.string(r, hsize)
+            return m.digest(hfunction, str)
         end
 
         m[ pname .. '_hex' ] = function(str)
@@ -252,8 +438,8 @@ if ssl ~= nil then
             else
                 str = tostring(str)
             end
-            local r = ssl[hfunction](str, string.len(str), nil)
-            return tohex(r, hsize)
+            local r = m.digest(hfunction, str)
+            return str_to_hex(r)
         end
     end
 else

@@ -94,4 +94,39 @@ mur:update('1234')
 mur:result()
 mur, mur_new, nulldigest = nil, nil, nil
 
+digest.digest('MD4', '123456')
+digest.digest('MD5', '123456')
+digest.digest('SHA224', '123456')
+digest.digest('SHA256', '123456')
+digest.digest('SHA512', '123456')
+
+ctx = digest.digest_ctx()
+ctx:init('MD4')
+ctx:update('123456')
+ctx:final()
+
+ctx = digest.digest_ctx()
+ctx:init('MD5')
+ctx:update('123456')
+ctx:final()
+
+ctx = digest.digest_ctx()
+ctx:init('SHA224')
+ctx:update('123456')
+ctx:final()
+
+ctx = digest.digest_ctx()
+ctx:init('SHA256')
+ctx:update('123456')
+ctx:final()
+
+ctx = digest.digest_ctx()
+ctx:init('SHA512')
+ctx:update('123456')
+ctx:final()
+
+digest.encrypt('AES-256-CBC', 'test123', 'passpasspasspasspasspasspasspass', 'iv12tras8712cvbhuytrghjklmnbdr34')
+digest.decrypt('AES-256-CBC', digest.encrypt('AES-256-CBC', 'test123', 'passpasspasspasspasspasspasspass', 'iv12tras8712cvbhuytrghjklmnbdr34'), 'passpasspasspasspasspasspasspass', 'iv12tras8712cvbhuytrghjklmnbdr34')
+digest.decrypt('AES-256-CBC', digest.encrypt('AES-256-CBC', 'test123', 'passpasspasspasspasspasspasspass', 'iv12tras8712cvbhuytrghjklmnbdr34'), 'nosspasspasspasspasspasspasspass', 'iv12tras8712cvbhuytrghjklmnbdr34')
+
 digest = nil

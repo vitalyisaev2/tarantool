@@ -219,19 +219,19 @@ digest.base64_decode(b) == s
 ...
 digest.base64_decode(nil)
 ---
-- error: 'builtin/digest.lua:181: Usage: digest.base64_decode(string)'
+- error: 'builtin/digest.lua:345: Usage: digest.base64_decode(string)'
 ...
 digest.base64_encode(nil)
 ---
-- error: 'builtin/digest.lua:170: Usage: digest.base64_encode(string)'
+- error: 'builtin/digest.lua:334: Usage: digest.base64_encode(string)'
 ...
 digest.base64_encode(123)
 ---
-- error: 'builtin/digest.lua:170: Usage: digest.base64_encode(string)'
+- error: 'builtin/digest.lua:334: Usage: digest.base64_encode(string)'
 ...
 digest.base64_decode(123)
 ---
-- error: 'builtin/digest.lua:181: Usage: digest.base64_decode(string)'
+- error: 'builtin/digest.lua:345: Usage: digest.base64_decode(string)'
 ...
 digest.guava('hello', 0)
 ---
@@ -255,7 +255,7 @@ digest.guava(1673758223894951030, 11)
 ...
 digest.urandom()
 ---
-- error: 'builtin/digest.lua:223: Usage: digest.urandom(len)'
+- error: 'builtin/digest.lua:387: Usage: digest.urandom(len)'
 ...
 #digest.urandom(0)
 ---
@@ -315,6 +315,103 @@ mur:result()
 ...
 mur, mur_new, nulldigest = nil, nil, nil
 ---
+...
+digest.digest('MD4', '123456')
+---
+- !!binary WFAoqg95SvgS7jvogE6xSg==
+...
+digest.digest('MD5', '123456')
+---
+- !!binary 4QrcOUm6Wau+VuBX8g+IPg==
+...
+digest.digest('SHA224', '123456')
+---
+- !!binary +M2wRJXe1HYVJY+dxqP0cH/SQFQ0/vw8v0705g==
+...
+digest.digest('SHA256', '123456')
+---
+- !!binary jZae727K08KaOmKSgOaGzww/XVqGr/PKEgIMkjrcbJI=
+...
+digest.digest('SHA512', '123456')
+---
+- !!binary ujJTh2rta8ItSm/1PYQGxq2GQZXtFEq1yHYhtsIztUi66uaVbfNG7IwX9eoQ817jy8UUeX7X3dMUVGTioLq0Ew==
+...
+ctx = digest.digest_ctx()
+---
+...
+ctx:init('MD4')
+---
+...
+ctx:update('123456')
+---
+...
+ctx:final()
+---
+- !!binary WFAoqg95SvgS7jvogE6xSg==
+...
+ctx = digest.digest_ctx()
+---
+...
+ctx:init('MD5')
+---
+...
+ctx:update('123456')
+---
+...
+ctx:final()
+---
+- !!binary 4QrcOUm6Wau+VuBX8g+IPg==
+...
+ctx = digest.digest_ctx()
+---
+...
+ctx:init('SHA224')
+---
+...
+ctx:update('123456')
+---
+...
+ctx:final()
+---
+- !!binary +M2wRJXe1HYVJY+dxqP0cH/SQFQ0/vw8v0705g==
+...
+ctx = digest.digest_ctx()
+---
+...
+ctx:init('SHA256')
+---
+...
+ctx:update('123456')
+---
+...
+ctx:final()
+---
+- !!binary jZae727K08KaOmKSgOaGzww/XVqGr/PKEgIMkjrcbJI=
+...
+ctx = digest.digest_ctx()
+---
+...
+ctx:init('SHA512')
+---
+...
+ctx:update('123456')
+---
+...
+ctx:final()
+---
+- !!binary ujJTh2rta8ItSm/1PYQGxq2GQZXtFEq1yHYhtsIztUi66uaVbfNG7IwX9eoQ817jy8UUeX7X3dMUVGTioLq0Ew==
+...
+digest.encrypt('AES-256-CBC', 'test123', 'passpasspasspasspasspasspasspass', 'iv12tras8712cvbhuytrghjklmnbdr34')
+---
+- !!binary ynO0qTTrTLNpNm3GrTnjng==
+...
+digest.decrypt('AES-256-CBC', digest.encrypt('AES-256-CBC', 'test123', 'passpasspasspasspasspasspasspass', 'iv12tras8712cvbhuytrghjklmnbdr34'), 'passpasspasspasspasspasspasspass', 'iv12tras8712cvbhuytrghjklmnbdr34')
+---
+- test123
+...
+digest.decrypt('AES-256-CBC', digest.encrypt('AES-256-CBC', 'test123', 'passpasspasspasspasspasspasspass', 'iv12tras8712cvbhuytrghjklmnbdr34'), 'nosspasspasspasspasspasspasspass', 'iv12tras8712cvbhuytrghjklmnbdr34')
+---
+- error: 'builtin/digest.lua:417: Can''t final cipher'
 ...
 digest = nil
 ---
