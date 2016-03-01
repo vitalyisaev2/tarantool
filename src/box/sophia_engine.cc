@@ -630,6 +630,12 @@ sophia_snapshot(void *env, int64_t lsn)
 	rc = sp_setstring(env, "view", snapshot, 0);
 	if (rc == -1)
 		sophia_error(env);
+
+	/* xxx: do not hold the transction */
+	snprintf(snapshot, sizeof(snapshot), "view.%" PRIu64, lsn);
+	o = sp_getobject(env, snapshot);
+	assert(o != NULL);
+	sp_setint(o, "db-view-only", 1);
 }
 
 static inline void
@@ -642,12 +648,20 @@ sophia_reference_checkpoint(void *env, int64_t lsn)
 	int rc = sp_setstring(env, "view", checkpoint_id, 0);
 	if (rc == -1)
 		sophia_error(env);
+
 	char snapshot[128];
 	/* update lsn */
 	snprintf(snapshot, sizeof(snapshot), "view.%" PRIu64 ".lsn", lsn);
 	rc = sp_setint(env, snapshot, lsn);
 	if (rc == -1)
 		sophia_error(env);
+
+	/* xxx: do not hold the transction */
+	snprintf(snapshot, sizeof(snapshot), "view.%" PRIu64, lsn);
+	void *o = sp_getobject(env, snapshot);
+	assert(o != NULL);
+	sp_setint(o, "db-view-only", 1);
+
 }
 
 static inline int
