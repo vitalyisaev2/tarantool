@@ -572,29 +572,32 @@ int TarantoolCursor::DeleteCurrent() {
 	(void)__func_name;
 	/*TODO: написать функцию, которая получает текущий ключ потом по этому ключу удлить
 			ожидаемая проблема, что итератор после этого упадет, подумать как это решить*/
-	int nCol = sql_index->nColumn;
+	int nKeyCol = sql_index->nKeyCol;
 	int msg_size = 5;
-	char *msg, *msg_begin;
+	char *msg_end, *msg_begin;
 	int cSize;
+	int rc;
 	const char *tmp, *tmp_next;
-	for (int i = 0; i < nCol; ++i) {
+	for (int i = 0; i < nKeyCol; ++i) {
 		tmp_next = tmp = box_tuple_field(tpl, sql_index->aiColumn[i]);
 		mp_next(&tmp_next);
 		msg_size += tmp_next - tmp;
 	}
-	msg_begin = msg = new char[msg_size];
-	msg = mp_encode_array(msg, sql_index->nColumn);
-	for (int i = 0; i < sql_index->nColumn; ++i) {
+	msg_begin = msg_end = new char[msg_size];
+	msg_end = mp_encode_array(msg_end, nKeyCol);
+	for (int i = 0; i < nKeyCol; ++i) {
 		tmp_next = tmp = box_tuple_field(tpl, sql_index->aiColumn[i]);
 		mp_next(&tmp_next);
 		cSize = tmp_next - tmp;
-		memcpy((void *)tmp, (void *)msg, cSize);
-		msg += cSize;
+		memcpy((void *)msg_end, (void *)tmp, cSize);
+		msg_end += cSize;
 	}
-	int rc = box_delete(space_id, index_id, msg_begin, msg, NULL);
+	rc = box_delete(space_id, index_id, msg_begin, msg_end, NULL);
+	assert(rc == 0);
 	box_iterator_free(it);
+	it = box_index_iterator(space_id, index_id, ITER_ALL, key, key_end);
 	type = ITER_GE;
-	it = box_index_iterator(space_id, index_id, type, msg_begin, msg);
+	it = box_index_iterator(space_id, index_id, type, msg_begin, msg_end);
 	return rc;
 }
 

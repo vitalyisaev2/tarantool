@@ -1,0 +1,19 @@
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+
+do_test update1-1.0 {
+  execsql {update test1 set id = 4 where id = 2}
+  execsql {select * from test1}
+} {1.0 3.0 4.0}
+
+do_test update1-2.0 {
+  execsql {update test2 set name = "Oleg" where name = "Ivan"}
+  execsql {select name from test2}
+} {Vlad Oleg Maria Albert Ksenia Brian}
+
+#do_test update1-2.1 {
+#  execsql {update test2 set id = id + 1 where id > 2}
+#  execsql {select name from test2 where id = 3}
+#} {Ivan}
+
+finish_test

@@ -249,6 +249,8 @@ trntl_cursor_insert(void *self, BtCursor *pCur, const void *pKey,
 	i64 nKey, const void *pData, int nData, int nZero, int appendBias,
 	int seekResult);
 
+void log_debug(const char *msg);
+
 /**
  * Delete tuple pointed by pCur.
  * @param bPreserve If this parameter is zero, then the cursor is left pointing at an
@@ -717,6 +719,7 @@ sql_tarantool_api_init(sql_tarantool_api *ob) {
 	ob->trntl_cursor_key_fetch = trntl_cursor_key_fetch;
 	ob->trntl_cursor_insert = trntl_cursor_insert;
 	ob->trntl_cursor_delete_current = trntl_cursor_delete_current;
+	ob->log_debug = log_debug;
 }
 
 void
@@ -1261,10 +1264,15 @@ int trntl_cursor_insert(void * /*self_*/, BtCursor *pCur, const void *pKey,
 		seekResult);
 }
 
+
 int trntl_cursor_delete_current(void * /*self_*/, BtCursor *pCur, int bPreserve) {
 	(void)bPreserve;
 	TrntlCursor *c = (TrntlCursor *)(pCur->trntl_cursor);
 	return c->cursor.DeleteCurrent();
+}
+
+void log_debug(const char *msg) {
+	say_debug("%s\n", msg);
 }
 
 void
