@@ -7,6 +7,7 @@ box.cfg.sophia
   threads: 3
   sync: 2
   snapshot_period: 0
+  sync_read: false
   branch_age: 0
   branch_prio: 2
   branch_age_period: 0

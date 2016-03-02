@@ -56,6 +56,14 @@
 #include <dirent.h>
 #include <errno.h>
 
+/*
+ * box.cfg { sophia = { sync_read = true } }
+ *
+ * This option allows all read operation to be called in
+ * synchronous (blocking) manner.
+*/
+int sophia_sync_read;
+
 void sophia_error(void *env)
 {
 	char *error = (char *)sp_getstring(env, "sophia.error", NULL);
@@ -120,7 +128,7 @@ sophia_read_free_cb(struct coio_task *ptr)
 }
 
 void *
-sophia_read(void *dest, void *key)
+sophia_read_async(void *dest, void *key)
 {
 	struct sophia_read_task *task =
 		(struct sophia_read_task *) mempool_alloc(&sophia_read_pool);
@@ -295,6 +303,8 @@ sophia_poll(SophiaEngine *e)
 void
 SophiaEngine::init()
 {
+	sophia_sync_read = cfg_geti("sophia.sync_read");
+
 	cord = cord();
 	/* Destroyed with cord() */
 	mempool_create(&sophia_read_pool, &cord()->slabc,

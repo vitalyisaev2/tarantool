@@ -16,7 +16,8 @@ local default_sophia_cfg = {
     snapshot_period   = 0,
     node_preload      = 0,
     mmap              = 1,
-    sync              = 2
+    sync              = 2,
+    sync_read         = false
 }
 
 -- all available options
@@ -67,7 +68,8 @@ local sophia_template_cfg = {
     snapshot_period   = 'number',
     node_preload      = 'number',
     mmap              = 'number',
-    sync              = 'number'
+    sync              = 'number',
+    sync_read         = 'boolean'
 }
 
 -- types of available options

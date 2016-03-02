@@ -75,6 +75,8 @@ cfg_filter(box.cfg)
         - 0
       - - sync
         - 2
+      - - sync_read
+        - false
       - - threads
         - 5
   - - sophia_dir

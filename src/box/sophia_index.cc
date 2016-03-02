@@ -46,6 +46,8 @@
 #include <inttypes.h>
 #include <bit/bit.h> /* load/store */
 
+extern int sophia_sync_read;
+
 void*
 sophia_tuple_new(void *obj, struct key_def *key_def,
                  struct tuple_format *format,
@@ -339,7 +341,23 @@ SophiaIndex::findByKey(const char *key, uint32_t part_count = 0) const
 	 * This can happen on a first-read statement. */
 	if (in_txn())
 		transaction = in_txn()->engine_tx;
-	void *result = sophia_read(transaction, obj);
+	void *result;
+	if (sophia_sync_read) {
+		result = sp_get(transaction, obj);
+	} else {
+		/* try to read from cache first, if nothing
+		 * is found retry using disk */
+		sp_setint(obj, "cache_only", 1);
+		sp_setint(obj, "immutable", 1);
+		result = sp_get(transaction, obj);
+		sp_setint(obj, "immutable", 0);
+		if (result) {
+			sp_destroy(obj);
+		} else {
+			sp_setint(obj, "cache_only", 0);
+			result = sophia_read_async(transaction, obj);
+		}
+	}
 	if (result == NULL)
 		return NULL;
 	struct tuple *tuple =
@@ -661,7 +679,7 @@ sophia_iterator_next(struct iterator *ptr)
 	/* switch to asynchronous mode (read from disk) */
 	sophia_iterator_mode(it, false, false);
 
-	obj = sophia_read(it->cursor, it->current);
+	obj = sophia_read_async(it->cursor, it->current);
 	if (obj == NULL) {
 		ptr->next = sophia_iterator_last;
 		it->current = NULL;
@@ -679,10 +697,33 @@ sophia_iterator_next(struct iterator *ptr)
 }
 
 struct tuple *
+sophia_iterator_next_sync(struct iterator *ptr)
+{
+	struct sophia_iterator *it = (struct sophia_iterator *) ptr;
+	assert(it->cursor != NULL);
+	void *obj;
+	obj = sp_get(it->cursor, it->current);
+	if (likely(obj == NULL)) {
+		ptr->next = sophia_iterator_last;
+		it->current = NULL;
+		/* immediately close the cursor */
+		sp_destroy(it->cursor);
+		it->cursor = NULL;
+		return NULL;
+	}
+	it->current = obj;
+	return (struct tuple *)
+		sophia_tuple_new(obj, it->key_def, it->space->format, NULL);
+}
+
+struct tuple *
 sophia_iterator_first(struct iterator *ptr)
 {
 	struct sophia_iterator *it = (struct sophia_iterator *) ptr;
-	ptr->next = sophia_iterator_next;
+	if (sophia_sync_read)
+		ptr->next = sophia_iterator_next_sync;
+	else
+		ptr->next = sophia_iterator_next;
 	return (struct tuple *)
 		sophia_tuple_new(it->current, it->key_def,
 		                 it->space->format,
@@ -717,6 +758,7 @@ SophiaIndex::initIterator(struct iterator *ptr,
                           enum iterator_type type,
                           const char *key, uint32_t part_count) const
 {
+	SophiaIndex *index = (SophiaIndex *)this;
 	struct sophia_iterator *it = (struct sophia_iterator *) ptr;
 	assert(it->cursor == NULL);
 	if (part_count > 0) {
@@ -753,25 +795,35 @@ SophiaIndex::initIterator(struct iterator *ptr,
 	default:
 		return initIterator(ptr, type, key, part_count);
 	}
+	/* Prepare for cursor traversing. There are two
+	 * possible iteration modes:
+	 *
+	 * sophia_sync_read = 1
+	 * blocking mode, do iterations without yields (fast).
+	 *
+	 * sophia_sync_read = 0:
+	 * non-blocking mode, do yield when disk access is required (slow).
+	 */
 	it->cursor = sp_cursor(env);
 	if (it->cursor == NULL)
 		sophia_error(env);
-	/* Position first key here, since key pointer might be
-	 * unavailable from lua.
-	 *
-	 * Read from disk and fill cursor cache.
-	 */
-	SophiaIndex *index = (SophiaIndex *)this;
 	void *obj = index->createDocument(key, &it->keyend);
 	sp_setstring(obj, "order", compare, 0);
-	obj = sophia_read(it->cursor, obj);
+	/* read from disk and fill cursor cache,
+	 * position first key */
+	if (sophia_sync_read)
+		obj = sp_get(it->cursor, obj);
+	else
+		obj = sophia_read_async(it->cursor, obj);
 	if (obj == NULL) {
 		sp_destroy(it->cursor);
 		it->cursor = NULL;
 		return;
 	}
 	it->current = obj;
-	/* switch to sync mode (cache read) */
-	sophia_iterator_mode(it, true, true);
+	if (! sophia_sync_read) {
+		/* switch to sync mode (cache read) */
+		sophia_iterator_mode(it, true, true);
+	}
 	ptr->next = sophia_iterator_first;
 }
