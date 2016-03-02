@@ -1,5 +1,5 @@
-#ifndef TARANTOOL_BOX_SOPHIA_ENGINE_H_INCLUDED
-#define TARANTOOL_BOX_SOPHIA_ENGINE_H_INCLUDED
+#ifndef TARANTOOL_BOX_SOPHIA_SPACE_H_INCLUDED
+#define TARANTOOL_BOX_SOPHIA_SPACE_H_INCLUDED
 /*
  * Copyright 2010-2015, Tarantool AUTHORS, please see AUTHORS file.
  *
@@ -31,47 +31,28 @@
  * SUCH DAMAGE.
  */
 #include "engine.h"
-#include "third_party/tarantool_ev.h"
-#include "small/mempool.h"
-#include "small/region.h"
 
-struct SophiaEngine: public Engine {
-	SophiaEngine();
-	~SophiaEngine();
-	virtual void init();
-	virtual Handler *open();
-	virtual Index *createIndex(struct key_def *);
-	virtual void dropIndex(Index*);
-	virtual void keydefCheck(struct space *space, struct key_def *f);
-	virtual void begin(struct txn *txn);
-	virtual void prepare(struct txn *txn);
-	virtual void commit(struct txn *txn, int64_t signature);
-	virtual void rollbackStatement(struct txn_stmt *stmt);
-	virtual void rollback(struct txn *txn);
-	virtual void beginJoin();
-	virtual void recoverToCheckpoint(int64_t);
-	virtual void endRecovery();
-	virtual void join(struct relay *relay);
-	virtual int beginCheckpoint(int64_t);
-	virtual int waitCheckpoint();
-	virtual void commitCheckpoint();
-	virtual void abortCheckpoint();
-private:
-	int64_t m_prev_commit_lsn;
-	int64_t m_prev_checkpoint_lsn;
-	int64_t m_checkpoint_lsn;
-public:
-	void *env;
-	int thread_pool_started;
-	int recovery_complete;
-	struct cord *cord;
+struct SophiaSpace: public Handler {
+	SophiaSpace(Engine*);
+	virtual struct tuple *
+	executeReplace(struct txn*, struct space *space,
+	               struct request *request);
+	virtual struct tuple *
+	executeDelete(struct txn*, struct space *space,
+	              struct request *request);
+	virtual struct tuple *
+	executeUpdate(struct txn*, struct space *space,
+	              struct request *request);
+	virtual void
+	executeUpsert(struct txn*, struct space *space,
+	              struct request *request);
 };
 
-extern "C" {
-typedef void (*sophia_info_f)(const char*, const char*, void*);
-int   sophia_info(const char*, sophia_info_f, void*);
-}
-void  sophia_error(void*);
-void *sophia_read(void*, void*);
+int
+sophia_upsert_callback(char **result,
+                       char **key, int *key_size, int key_count,
+                       char *src, int src_size,
+                       char *upsert, int upsert_size,
+                       void *arg);
 
-#endif /* TARANTOOL_BOX_SOPHIA_ENGINE_H_INCLUDED */
+#endif

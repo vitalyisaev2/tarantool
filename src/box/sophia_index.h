@@ -33,14 +33,14 @@
 
 #include "index.h"
 
+class SophiaIndex;
+
+typedef void* (*sophia_document_new_f)(const SophiaIndex*, const char**);
+
 class SophiaIndex: public Index {
 public:
 	SophiaIndex(struct key_def *key_def);
 	~SophiaIndex();
-
-	virtual struct tuple*
-	replace(struct tuple*,
-	        struct tuple*, enum dup_replace_mode);
 
 	virtual struct tuple*
 	findByKey(const char *key, uint32_t) const;
@@ -57,20 +57,11 @@ public:
 	virtual size_t bsize() const;
 
 public:
-	void replace_or_insert(const char *tuple,
-	                       const char *tuple_end,
-	                       enum dup_replace_mode mode);
-	void remove(const char *key);
-	void upsert(const char *ops,
-	            const char *ops_end,
-	            const char *tuple,
-	            const char *tuple_end,
-	            uint8_t index_base);
+	sophia_document_new_f create_document;
 	void *env;
 	void *db;
 
 private:
-	void *createDocument(const char *key, const char **keyend);
 	struct tuple_format *format;
 };
 

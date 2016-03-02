@@ -28,26 +28,25 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include "sophia_index.h"
-#include "sophia_engine.h"
-#include "coeio.h"
-#include "coio.h"
-#include "cfg.h"
-#include "xrow.h"
 #include "tuple.h"
-#include "scoped_guard.h"
 #include "txn.h"
 #include "index.h"
-#include "recovery.h"
-#include "relay.h"
+#include "bit/bit.h"
 #include "space.h"
 #include "schema.h"
-#include "port.h"
-#include "request.h"
 #include "iproto_constants.h"
-#include "small/rlist.h"
-#include <errinj.h>
-#include <sophia.h>
+#include "request.h"
+#include "recovery.h"
+#include "scoped_guard.h"
+#include "coeio.h"
+#include "coio.h"
+#include "relay.h"
+#include "xrow.h"
+#include "cfg.h"
+#include "sophia_index.h"
+#include "sophia_space.h"
+#include "sophia_engine.h"
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -55,6 +54,7 @@
 #include <sys/types.h>
 #include <dirent.h>
 #include <errno.h>
+#include <sophia.h>
 
 void sophia_error(void *env)
 {
@@ -136,128 +136,6 @@ sophia_read(void *dest, void *key)
 	void *result = task->result;
 	mempool_free(&sophia_read_pool, task);
 	return result;
-}
-
-struct SophiaSpace: public Handler {
-	SophiaSpace(Engine*);
-	virtual struct tuple *
-	executeReplace(struct txn*, struct space *space,
-	               struct request *request);
-	virtual struct tuple *
-	executeDelete(struct txn*, struct space *space,
-	              struct request *request);
-	virtual struct tuple *
-	executeUpdate(struct txn*, struct space *space,
-	              struct request *request);
-	virtual void
-	executeUpsert(struct txn*, struct space *space,
-	              struct request *request);
-};
-
-struct tuple *
-SophiaSpace::executeReplace(struct txn *txn, struct space *space,
-                            struct request *request)
-{
-	(void) txn;
-
-	SophiaIndex *index = (SophiaIndex *)index_find(space, 0);
-
-	space_validate_tuple_raw(space, request->tuple);
-
-	int size = request->tuple_end - request->tuple;
-	const char *key =
-		tuple_field_raw(request->tuple, size,
-		                index->key_def->parts[0].fieldno);
-	primary_key_validate(index->key_def, key, index->key_def->part_count);
-
-	/* Switch from INSERT to REPLACE during recovery.
-	 *
-	 * Database might hold newer key version than currenly
-	 * recovered log record.
-	 */
-	enum dup_replace_mode mode = DUP_REPLACE_OR_INSERT;
-	if (request->type == IPROTO_INSERT) {
-		SophiaEngine *engine = (SophiaEngine *)space->handler->engine;
-		if (engine->recovery_complete)
-			mode = DUP_INSERT;
-	}
-	index->replace_or_insert(request->tuple, request->tuple_end, mode);
-	return NULL;
-}
-
-struct tuple *
-SophiaSpace::executeDelete(struct txn *txn, struct space *space,
-                           struct request *request)
-{
-	(void) txn;
-
-	SophiaIndex *index = (SophiaIndex *)index_find(space, request->index_id);
-	const char *key = request->key;
-	uint32_t part_count = mp_decode_array(&key);
-	primary_key_validate(index->key_def, key, part_count);
-	index->remove(key);
-	return NULL;
-}
-
-struct tuple *
-SophiaSpace::executeUpdate(struct txn *txn, struct space *space,
-                           struct request *request)
-{
-	(void) txn;
-
-	/* Try to find the tuple by unique key */
-	SophiaIndex *index = (SophiaIndex *)index_find(space, request->index_id);
-	const char *key = request->key;
-	uint32_t part_count = mp_decode_array(&key);
-	primary_key_validate(index->key_def, key, part_count);
-	struct tuple *old_tuple = index->findByKey(key, part_count);
-
-	if (old_tuple == NULL)
-		return NULL;
-	/* Sophia always yields a zero-ref tuple, GC it here. */
-	TupleRef old_ref(old_tuple);
-
-	/* Do tuple update */
-	struct tuple *new_tuple =
-		tuple_update(space->format,
-		             region_aligned_alloc_xc_cb,
-		             &fiber()->gc,
-		             old_tuple, request->tuple,
-		             request->tuple_end,
-		             request->index_base);
-	TupleRef ref(new_tuple);
-
-	space_validate_tuple(space, new_tuple);
-	space_check_update(space, old_tuple, new_tuple);
-
-	index->replace_or_insert(new_tuple->data,
-	                         new_tuple->data + new_tuple->bsize,
-	                         DUP_REPLACE);
-	return NULL;
-}
-
-void
-SophiaSpace::executeUpsert(struct txn *txn, struct space *space,
-                           struct request *request)
-{
-	(void) txn;
-	SophiaIndex *index = (SophiaIndex *)index_find(space, request->index_id);
-
-	/* Check field count in tuple */
-	space_validate_tuple_raw(space, request->tuple);
-	/* Check tuple fields */
-	tuple_validate_raw(space->format, request->tuple);
-
-	index->upsert(request->ops,
-	              request->ops_end,
-	              request->tuple,
-	              request->tuple_end,
-	              request->index_base);
-}
-
-SophiaSpace::SophiaSpace(Engine *e)
-	:Handler(e)
-{
 }
 
 SophiaEngine::SophiaEngine()
