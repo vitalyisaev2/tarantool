@@ -43,7 +43,7 @@ box.space.test2:insert({6, 'Brian', 'Hankok', 200, 300, 800})
 
 -- initialization params
 local arg0 = ffi.cast('char *',  tarantool_path)
-local arg1 = ffi.cast('char *', "./update1.test")
+local arg1 = ffi.cast('char *', "./delete1.test")
 local argv = ffi.new('char *[2]')
 argv[0] = arg0
 argv[1] = arg1
