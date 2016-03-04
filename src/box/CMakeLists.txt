@@ -75,6 +75,7 @@ add_library(box
     lua/sql.cc
     lua/sql_mvalue.cc
     lua/sql_tarantool_cursor.cc
+    lua/space_iterator.cc
     ${bin_sources})
 
 target_link_libraries(box ${sophia_lib} trnsqlite)

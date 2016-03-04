@@ -26,7 +26,3 @@ do_test insert1-0.5 {
 } {8.0 Boba Fett 3000.0 4000.0 9000.0}
 
 finish_test
-
-# do_test insert1-1.6 {
-# 	catchsql {INSERT INTO test3 values (8, 'Darth', 'Vader', 100, 200, 1000)}
-# } {1.0}

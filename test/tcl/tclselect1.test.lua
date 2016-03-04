@@ -8,14 +8,14 @@ require("top")
 if box.space.test then
     box.space.test:drop()
 end
-box.schema.space.create('test')
-box.space.test:create_index('primary', {parts={1, 'NUM'}, type='TREE'})
-format = {}
-format[1] = {name='id', type='num'}
-box.space.test:format(format)
-for i = 1, 3 do
-    box.space.test:insert({i})
-end
+-- box.schema.space.create('test')
+-- box.space.test:create_index('primary', {parts={1, 'NUM'}, type='TREE'})
+-- format = {}
+-- format[1] = {name='id', type='num'}
+-- box.space.test:format(format)
+-- for i = 1, 3 do
+--     box.space.test:insert({i})
+-- end
 
 -- init space test2 
 if box.space.test2 then

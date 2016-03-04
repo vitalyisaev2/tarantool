@@ -78,6 +78,7 @@ public:
 	TarantoolCursor(const TarantoolCursor &ob);
 	TarantoolCursor &operator=(const TarantoolCursor &ob);
 	int MoveToFirst(int *pRes);
+	int MoveToLast(int *pRes);
 	int DataSize(u32 *pSize) const;
 	const void *DataFetch(u32 *pAmt) const;
 	int KeySize(i64 *pSize);

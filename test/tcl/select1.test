@@ -1,6 +1,11 @@
 set testdir [file dirname $argv0]
 source $testdir/tester.tcl
 
+execsql { CREATE TABLE test (id INT, PRIMARY KEY (id)) WITHOUT ROWID }
+# execsql {INSERT INTO test values (1)}
+# execsql {INSERT INTO test values (2)}
+# execsql {INSERT INTO test values (3)}
+
 do_test select1-0.1 {
   execsql {SELECT * from test}
 } {1.0 2.0 3.0}

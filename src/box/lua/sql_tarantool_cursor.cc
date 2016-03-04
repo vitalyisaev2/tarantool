@@ -473,6 +473,7 @@ bool TarantoolCursor::make_msgpuck_from_btree_cell(const char *dt, int sz) {
 		}
 	}
 	delete[] cols_in_msg;
+	delete[] vals;
 	data = msg_pack;
 	size = it - msg_pack;
 	return true;
@@ -505,6 +506,29 @@ int TarantoolCursor::MoveToFirst(int *pRes) {
 		*pRes = 1;
 		return SQLITE_OK;
 	}
+	rc = this->make_btree_cell_from_tuple();
+	return SQLITE_OK;
+}
+
+int TarantoolCursor::MoveToLast(int *pRes) {
+	static const char *__func_name = "TarantoolCursor::MoveToLast";
+	if (it) box_iterator_free(it);
+	it = box_index_iterator(space_id, index_id, type, key, key_end);
+	int len = box_index_len(space_id, index_id);
+	int rc;
+	for (int i = 0; i < len - 1; ++i) {
+		rc = box_iterator_next(it, &tpl);
+		if (rc) {
+			say_debug("%s(): box_iterator_next return rc = %d <> 0\n", __func_name, rc);
+			*pRes = 1;
+			tpl = NULL;
+		}
+	}
+	if (tpl == NULL) {
+		*pRes = 1;
+		return SQLITE_OK;
+	}
+	*pRes = 0;
 	rc = this->make_btree_cell_from_tuple();
 	return SQLITE_OK;
 }
@@ -564,6 +588,10 @@ int TarantoolCursor::Insert(const void *pKey,
 		return SQLITE_ERROR;
 	}
 	int rc = box_insert(space_id, (const char *)data, (const char *)data + size, NULL);
+	sql_tarantool_api *trn_api = &db->trn_api;
+	if (rc) {
+		trn_api->log_debug(box_error_message(box_error_last()));
+	}
 	return rc;
 }
 
