@@ -1,0 +1,25 @@
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+
+do_test delete1-1.0 {
+  execsql {delete from test1 where id = 2}
+  execsql {select * from test1}
+} {1.0 3.0}
+
+do_test delete1-2.0 {
+  execsql {delete from test2 where name = "Ivan"}
+  execsql {select name from test2}
+} {Vlad Maria Albert Ksenia Brian}
+
+do_test delete1-2.1 {
+  execsql {delete from test2 where id > 2}
+  execsql {select name from test2}
+} {Vlad}
+
+do_test delete1-3.0 {
+  execsql {delete from test3 where id >= 2 and id <= 5}
+  execsql {select name from test3}
+} {Vlad Brian}
+
+
+finish_test

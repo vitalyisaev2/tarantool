@@ -11,14 +11,6 @@ select1-3.2... Ok
 select1-3.3... Ok
 select1-3.4... Ok
 0 errors out of 13 tests
-Unfreed memory: 2848 bytes in 89 allocations
+Unfreed memory: 2880 bytes in 90 allocations
 Writing unfreed memory log to "./memleak.txt"
-Memory used:          now       2848  max     245680  max-size     129600
-Allocation count:     now         89  max        478
-Page-cache used:      now          0  max          0  max-size       1024
-Page-cache overflow:  now          0  max       1024
-Scratch memory used:  now          0  max          0
-Scratch overflow:     now          0  max          0  max-size          0
-Maximum memory usage: 245680 bytes
-Current memory usage: 2848 bytes
 Number of malloc()  : -1 calls

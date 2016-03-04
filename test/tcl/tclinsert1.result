@@ -5,12 +5,3 @@ insert1-0.4... Ok
 insert1-0.5... Ok
 0 errors out of 6 tests
 All memory allocations freed - no leaks
-Memory used:          now          0  max     234992  max-size     129600
-Allocation count:     now          0  max        357
-Page-cache used:      now          0  max          0  max-size       1024
-Page-cache overflow:  now          0  max       1024
-Scratch memory used:  now          0  max          0
-Scratch overflow:     now          0  max          0  max-size          0
-Maximum memory usage: 234992 bytes
-Current memory usage: 0 bytes
-Number of malloc()  : -1 calls

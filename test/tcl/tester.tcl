@@ -1081,10 +1081,8 @@ proc finalize_testing {} {
     }
   }
   show_memstats
-  output2 "Maximum memory usage: [sqlite3_memory_highwater 1] bytes"
-  output2 "Current memory usage: [sqlite3_memory_highwater] bytes"
   if {[info commands sqlite3_memdebug_malloc_count] ne ""} {
-    output2 "Number of malloc()  : [sqlite3_memdebug_malloc_count] calls"
+    # deleted for capability with test-run
   }
   if {$::cmdlinearg(malloctrace)} {
     output2 "Writing mallocs.sql..."
@@ -1108,37 +1106,9 @@ proc finalize_testing {} {
 }
 
 # Display memory statistics for analysis and debugging purposes.
-#
+# Deleted for capability with test-run
 proc show_memstats {} {
-  set x [sqlite3_status SQLITE_STATUS_MEMORY_USED 0]
-  set y [sqlite3_status SQLITE_STATUS_MALLOC_SIZE 0]
-  set val [format {now %10d  max %10d  max-size %10d} \
-              [lindex $x 1] [lindex $x 2] [lindex $y 2]]
-  output1 "Memory used:          $val"
-  set x [sqlite3_status SQLITE_STATUS_MALLOC_COUNT 0]
-  set val [format {now %10d  max %10d} [lindex $x 1] [lindex $x 2]]
-  output1 "Allocation count:     $val"
-  set x [sqlite3_status SQLITE_STATUS_PAGECACHE_USED 0]
-  set y [sqlite3_status SQLITE_STATUS_PAGECACHE_SIZE 0]
-  set val [format {now %10d  max %10d  max-size %10d} \
-              [lindex $x 1] [lindex $x 2] [lindex $y 2]]
-  output1 "Page-cache used:      $val"
-  set x [sqlite3_status SQLITE_STATUS_PAGECACHE_OVERFLOW 0]
-  set val [format {now %10d  max %10d} [lindex $x 1] [lindex $x 2]]
-  output1 "Page-cache overflow:  $val"
-  set x [sqlite3_status SQLITE_STATUS_SCRATCH_USED 0]
-  set val [format {now %10d  max %10d} [lindex $x 1] [lindex $x 2]]
-  output1 "Scratch memory used:  $val"
-  set x [sqlite3_status SQLITE_STATUS_SCRATCH_OVERFLOW 0]
-  set y [sqlite3_status SQLITE_STATUS_SCRATCH_SIZE 0]
-  set val [format {now %10d  max %10d  max-size %10d} \
-               [lindex $x 1] [lindex $x 2] [lindex $y 2]]
-  output1 "Scratch overflow:     $val"
-  ifcapable yytrackmaxstackdepth {
-    set x [sqlite3_status SQLITE_STATUS_PARSER_STACK 0]
-    set val [format {               max %10d} [lindex $x 2]]
-    output2 "Parser stack depth:    $val"
-  }
+
 }
 
 # A procedure to execute SQL
