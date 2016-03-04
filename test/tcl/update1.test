@@ -2,18 +2,41 @@ set testdir [file dirname $argv0]
 source $testdir/tester.tcl
 
 do_test update1-1.0 {
-  execsql {update test1 set id = 4 where id = 2}
-  execsql {select * from test1}
-} {1.0 3.0 4.0}
+  execsql {update test1 set data = 3 where id = 2}
+  execsql {select * from test1 where id < 4 or id = 10}
+} {1.0 1.0 2.0 3.0 3.0 3.0 10.0 10.0}
+
+do_test update1-1.1 {
+  execsql {update test1 set data = data + 1 where id > 2}
+  execsql {select * from test1 where id < 4 or id = 10}
+} {1.0 1.0 2.0 3.0 3.0 4.0 10.0 11.0}
+
 
 do_test update1-2.0 {
-  execsql {update test2 set name = "Oleg" where name = "Ivan"}
-  execsql {select name from test2}
-} {Vlad Oleg Maria Albert Ksenia Brian}
+  execsql {update test2 set surname = "Unknown" where id > 3}
+  execsql {select surname from test2}
+} {Shpilevoy Petrov Popova Unknown Unknown Unknown}
 
-#do_test update1-2.1 {
-#  execsql {update test2 set id = id + 1 where id > 2}
-#  execsql {select name from test2 where id = 3}
-#} {Ivan}
+do_test update1-3.0 {
+  execsql {update test3 set surname = "Unknown" where id > 3}
+  execsql {select surname from test3}
+} {Shpilevoy Petrov Popova Unknown Unknown Unknown}
+
+do_test update1-3.1 {
+  execsql {update test3 set foo = 179 where surname = "Unknown"}
+  execsql {select foo from test3}
+} {200.0 300.0 400.0 179.0 179.0 179.0}
+
+
+do_test update1-4.0 {
+  execsql {update test4 set name = "test" where id > 3}
+  execsql {select name from test4 where id > 2 and id <= 5}
+} {Maria test test}
+
+do_test update1-4.1 {
+  execsql {update test4 set name = "test1", foo = foo + 1 where id > 3}
+  execsql {select name, foo from test4 where id > 2 and id <= 5}
+} {Maria 400.0 test1 501.0 test1 201.0}
+
 
 finish_test
