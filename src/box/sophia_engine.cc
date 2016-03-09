@@ -46,6 +46,7 @@
 #include "request.h"
 #include "iproto_constants.h"
 #include "small/rlist.h"
+#include "small/pmatomic.h"
 #include <errinj.h>
 #include <sophia.h>
 #include <stdlib.h>
@@ -58,6 +59,53 @@
 
 /* sophia environment reference for a module access */
 void *sophia_env = NULL;
+
+struct cord *worker_pool;
+static int worker_pool_size;
+static volatile int worker_pool_run;
+
+static void*
+sophia_worker(void *env)
+{
+	while (pm_atomic_load_explicit(&worker_pool_run,
+				       pm_memory_order_relaxed)) {
+		int rc = sp_service(env);
+		if (rc == -1)
+			break;
+		if (rc == 0)
+			usleep(10000); /* 10ms */
+	}
+	return NULL;
+}
+
+void
+sophia_workers_start(void *env)
+{
+	if (worker_pool_run)
+		return;
+	/* prepare worker pool */
+	worker_pool = NULL;
+	worker_pool_size = cfg_geti("sophia.threads");
+	if (worker_pool_size > 0) {
+		worker_pool = (struct cord *)calloc(worker_pool_size, sizeof(struct cord));
+		if (worker_pool == NULL)
+			panic("failed to allocate sophia worker pool");
+	}
+	worker_pool_run = 1;
+	for (int i = 0; i < worker_pool_size; i++)
+		cord_start(&worker_pool[i], "sophia", sophia_worker, env);
+}
+
+static void
+sophia_workers_stop(void)
+{
+	if (! worker_pool_run)
+		return;
+	pm_atomic_store_explicit(&worker_pool_run, 0, pm_memory_order_relaxed);
+	for (int i = 0; i < worker_pool_size; i++)
+		cord_join(&worker_pool[i]);
+	free(worker_pool);
+}
 
 void sophia_error(void *env)
 {
@@ -268,7 +316,6 @@ SophiaEngine::SophiaEngine()
 	 ,m_prev_commit_lsn(-1)
 	 ,m_prev_checkpoint_lsn(-1)
 	 ,m_checkpoint_lsn(-1)
-	 ,thread_pool_started(0)
 	 ,recovery_complete(0)
 {
 	flags = 0;
@@ -277,41 +324,31 @@ SophiaEngine::SophiaEngine()
 
 SophiaEngine::~SophiaEngine()
 {
+	sophia_workers_stop();
 	if (env)
 		sp_destroy(env);
 	sophia_env = NULL;
 }
 
-static inline int
-sophia_poll(SophiaEngine *e)
-{
-	void *req = sp_poll(e->env);
-	if (req == NULL)
-		return 0;
-	struct fiber *fiber =
-		(struct fiber *)sp_getstring(req, "arg", NULL);
-	assert(fiber != NULL);
-	fiber_set_key(fiber, FIBER_KEY_MSG, req);
-	fiber_call(fiber);
-	return 1;
-}
-
 void
 SophiaEngine::init()
 {
-	cord = cord();
-	/* Destroyed with cord() */
+	worker_pool_run = 0;
+	worker_pool_size = 0;
+	worker_pool = NULL;
+	/* destroyed with cord() */
 	mempool_create(&sophia_read_pool, &cord()->slabc,
 	               sizeof(struct sophia_read_task));
+	/* prepare worker pool */
 	env = sp_env();
 	if (env == NULL)
 		panic("failed to create sophia environment");
-	sp_setint(env, "sophia.recover", 2);
+	worker_pool_size = cfg_geti("sophia.threads");
 	sp_setint(env, "sophia.path_create", 0);
+	sp_setint(env, "sophia.recover", 2);
 	sp_setstring(env, "sophia.path", cfg_gets("sophia_dir"), 0);
 	sp_setint(env, "scheduler.threads", 0);
 	sp_setint(env, "memory.limit", cfg_geti64("sophia.memory_limit"));
-	sp_setint(env, "compaction.0.async", 1);
 	sp_setint(env, "compaction.0.snapshot_period", 0);
 	sp_setint(env, "compaction.0.compact_wm", cfg_geti("sophia.compact_wm"));
 	sp_setint(env, "compaction.0.branch_prio", cfg_geti("sophia.branch_prio"));
@@ -676,7 +713,6 @@ sophia_reference_checkpoint(void *env, int64_t lsn)
 	void *o = sp_getobject(env, snapshot);
 	assert(o != NULL);
 	sp_setint(o, "db-view-only", 1);
-
 }
 
 static inline int
@@ -750,7 +786,7 @@ int
 SophiaEngine::waitCheckpoint()
 {
 	assert(m_checkpoint_lsn != -1);
-	if (! thread_pool_started)
+	if (! worker_pool_run)
 		return 0;
 	while (! sophia_snapshot_ready(env, m_checkpoint_lsn))
 		fiber_yield_timeout(.020);

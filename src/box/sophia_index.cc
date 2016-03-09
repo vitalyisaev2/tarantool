@@ -271,12 +271,7 @@ SophiaIndex::SophiaIndex(struct key_def *key_def_arg)
 		(SophiaEngine *)space->handler->engine;
 	env = engine->env;
 	int rc;
-	if (! engine->thread_pool_started) {
-		rc = sp_setint(env, "scheduler.threads", cfg_geti("sophia.threads"));
-		if (rc == -1)
-			sophia_error(env);
-		engine->thread_pool_started = 1;
-	}
+	sophia_workers_start(env);
 	db = sophia_configure(space, key_def);
 	if (db == NULL)
 		sophia_error(env);
@@ -339,9 +334,20 @@ SophiaIndex::findByKey(const char *key, uint32_t part_count = 0) const
 	 * This can happen on a first-read statement. */
 	if (in_txn())
 		transaction = in_txn()->engine_tx;
-	void *result = sophia_read(transaction, obj);
-	if (result == NULL)
-		return NULL;
+	/* try to read from cache first, if nothing is found
+	 * retry using disk */
+	sp_setint(obj, "cache_only", 1);
+	sp_setint(obj, "immutable", 1);
+	void *result = sp_get(transaction, obj);
+	sp_setint(obj, "immutable", 0);
+	if (result == NULL) {
+		sp_setint(obj, "cache_only", 0);
+		result = sophia_read(transaction, obj);
+		if (result == NULL)
+			return NULL;
+	} else {
+		sp_destroy(obj);
+	}
 	struct tuple *tuple =
 		(struct tuple *)sophia_tuple_new(result, key_def, format, NULL);
 	sp_destroy(result);
