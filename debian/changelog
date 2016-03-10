@@ -1,3 +1,701 @@
+tarantool (1.6.8-545-gbae4581) utopic; urgency=medium
+
+  [ Konstantin Osipov ]
+  * Bump the release number to 1.6.8, marking the beginning of 1.6.8.
+  * arm: digest.cc -> digest.c
+  * arm: fix a compile error
+  * arm: lua/trigger.cc -> lua/trigger.c
+  * arm: preparing to remove external unwind, lua/utils.cc -> lua/utils.c
+  * lua/utils.c: fix a compile error
+  * arm: switch from try/catch to a protected call in Lua
+  * arm: lua/fiber.cc -> lua/fiber.c (step 1, remove fiber_testcancel()).
+  * arm: lua/fiber.cc -> lua/fiber.c (part 2, remove C++).
+  * tests: fix box/socket.test
+  * arm: lua/ipc.cc -> lua/ipc.c
+  * arm: remove exceptions from coeio
+  * arm: coeio.cc -> coeio.c
+  * arm: lua/socket.cc -> lua/socket.c
+  * arm: coeio_file.cc -> coeio_file.c
+  * arm: lua/fio.cc -> lua/fio.c
+  * arm: avoid exceptions in lua/pickle.cc
+  * arm: lua/picklle.cc -> lua/pickle.c
+
+  [ Dmitry Simonenko ]
+  * gh-1162-sophia-upsert: fix #1162; move sophia/upsert.test.lua to engine/
+
+  [ Konstantin Osipov ]
+  * Fix wal_off/oom test on arm
+  * Fix premature free if invalid id was passed
+  * arm: make error handling function settable in lua/msgpack.cc
+
+  [ Roman Tsisyk ]
+  * Use ER_CFG for errors in load_cfg.lua
+
+  [ Konstantin Osipov ]
+  * arm: remove RAII in lua/msgpack.cc
+  * arm: lua/msgpack.cc -> lua/msgpack.c
+  * arm: replace tnt_raise() with lua_error() in msgpack encoders
+  * arm: remove C++isms from lua/init.cc
+  * arm: lua/init.cc -> lua/init.c
+  * arm: box/lua/net_box.cc -> box/lua/net_box.c
+  * arm: remove RAII from tuple.cc (part 1)
+  * arm: src/box/lua/sophia.cc -> src/box/lua/sophia.c
+  * arm: src/box/lua/sophia.cc -> src/box/lua/sophia.c
+
+  [ Roman Tsisyk ]
+  * gh-676: Propagate C++ exceptions through Lua using cdata objects
+
+  [ Konstantin Osipov ]
+  * arm: box/lua/slab.cc -> box/lua/slab.c
+  * arm: remove luamp_throw().
+
+  [ Roman Tsisyk ]
+  * Add a build factory for ClientError
+
+  [ Konstantin Osipov ]
+  * rmean: clean up the API
+  * arm: box/lua/stat.cc -> box/lua/stat.c
+
+  [ Roman Tsisyk ]
+  * Add #ifdef __cplusplus to some header files in src/box/
+  * Fix warning on gcc 5.2
+
+  [ Konstantin Osipov ]
+  * arm: sanitize error.h header
+  * arm: errinj.cc -> errinj.c
+  * arm: latch.cc -> latch.c
+  * arm: sanitize key_def.h
+
+  [ Roman Tsisyk ]
+  * arm: sanitize session.h header
+  * Add __attribute__((nothrow)) to API_EXPORT macro
+
+  [ Konstantin Osipov ]
+  * box/session.cc: clean up includes
+
+  [ Roman Tsisyk ]
+  * arm: box/lua/tuple.cc -> box/lua/tuple.c
+  * arm: box/lua/index.cc -> box/lua/index.c
+
+  [ Konstantin Osipov ]
+  * arm: continue the C cleanup of box/index.h and box/tuple.h
+  * arm: sanitize user_def.h
+  * arm: sanitize box/user.h
+
+  [ Roman Tsisyk ]
+  * Fix cyclic dependency between libserver.a and libbox.a
+
+  [ Konstantin Osipov ]
+  * diag: move diag_raise() to diag.h, to reduce dependencies on fiber.h
+  * coio_wait(): fix a sporadically failing socket.test
+  * arm: introduce C style wrappers for user cache operations.
+
+  [ Roman Tsisyk ]
+  * arm: box/lua/info.cc -> box/lua/info.c
+
+  [ Konstantin Osipov ]
+  * cleanup: remove dead forward declarations
+  * arm: sanitize sio.h (socket IO)
+
+  [ Roman Tsisyk ]
+  * Refactoring: split box/lua/call.cc
+  * Fix Release warnings caused by luaL_checkcdata()
+
+  [ Konstantin Osipov ]
+  * box/lua/tuple.c: fix a compilation failure
+  * arm: lua_error() friendly API in Lua triggers
+  * arm: box/lua/session.cc -> box/lua/session.c
+
+  [ Roman Tsisyk ]
+  * Refactor box/lua/call.cc
+
+  [ Konstantin Osipov ]
+  * arm: remove one place where fiber API may leak
+  * arm: lua/call.cc split, review fixes
+  * Update a test result (missed a file in commit).
+  * arm: remove catch-alls to crash on foreign exceptions on x86 as well.
+
+  [ Roman Tsisyk ]
+  * Rewrite execute_lua_call() and execute_eval() in C
+
+  [ Konstantin Osipov ]
+  * arm: box/lua/call.cc -> box/lua/call.c
+  * arm: remove LuaJIT EXTERNAL_UNWIND on x86/64
+  * tests: add line number filters (cherry-picked from arm7-experimental branch)
+
+  [ Daniil Medvedev ]
+  * rebased with 1.6
+  * gh-969 disable bench
+  * gh-969 set comparator through key_def_finalize
+  * gh-969 renaming
+  * gh-969 inline wrap
+  * gh-969 configurable tuple bench
+  * gh-969 code style fixes
+  * gh-969 code style fixes
+
+  [ Konstantin Osipov ]
+  * gh-969-dynasm-tuple-comparator: post-rebase fixes
+  * upsert: improve an error message
+
+  [ Roman Tsisyk ]
+  * Fix #1050: remove session->cookie (an artifact).
+
+  [ Konstantin Osipov ]
+  * gh-969: review fixes
+  * fiber.c: update comment
+  * module API: provide a backward compatible define
+
+  [ Nick Zavaritsky ]
+  * Add functions for unaligned mem access + fix pickle
+
+  [ Konstantin Osipov ]
+  * test/box: update disabled pattern, broken by the patch for gh-969
+
+  [ Nick Zavaritsky ]
+  * Fix alignment issues in msgpackffi
+  * libcoro: add fast coroutine switching for arm
+  * Fix unaligned access in box/sophia_index
+  * Update small, msgpuck, sophia
+  * Switch to aligned region alocator in engines
+
+  [ Roman Tsisyk ]
+  * Move load_XX()/store_xx() to src/lib/bit
+  * Rewrite lbox_select() using port_buf
+  * Fix compilation on gcc 4.6
+  * coro_transfer arm64
+
+  [ Konstantin Osipov ]
+  * sophia: English error message
+
+  [ Nick Zavaritsky ]
+  * Use gettimeofday in tuple_bench, no clock_gettime on osx
+
+  [ Sulverus ]
+  * Tarantool cloud build
+
+  [ Roman Tsisyk ]
+  * Add missing include to src/lua/msgpack.cc
+
+  [ Sulverus ]
+  * Old build system rpm spec compatibility
+  * Rpm spec updated with mock rebuild compatibility
+
+  [ daurnimator ]
+  * export iowait function from socket module
+
+  [ Roman Tsisyk ]
+  * Fix #1204: export socket.iowait() function to Lua API
+
+  [ Sulverus ]
+  * rpm spec fix for old and new build systems
+
+  [ Roman Tsisyk ]
+  * Set default value for timeout in socket.iowait() (#1204)
+
+  [ Konstantin Osipov ]
+  * cbus: change initialization order
+
+  [ Roman Tsisyk ]
+  * Fix #1204: allow fd == nil in socket.iowait()
+
+  [ Nick Zavaritsky ]
+  * Fix #354: yaml incorrectly escapes special characters in a string
+
+  [ Roman Tsisyk ]
+  * Fix compilation with external libyaml
+
+  [ Nick Zavaritsky ]
+  * gh-1208: Fix crash in csv parser
+
+  [ Roman Tsisyk ]
+  * Fixes for socket.iowait() after daurnimator's review
+  * Fix #531: add missing AI_ADDRCONFIG for getaddrinfo
+
+  [ Nick Zavaritsky ]
+  * Add test case for a.b.c.d parsing in iproto call
+
+  [ bigbes ]
+  * Fix compatibility (again) for box_error_raise
+
+  [ Dmitry Simonenko ]
+  * sophia-1.6-upgrade: upgrade 1.6 with latest sophia changes
+
+  [ Nick Zavaritsky ]
+  * Fix #1224: allow build to proceed if pthread_setname_np not found
+  * Fix #1218: loop with snapshot_period
+  * Update README.FreeBSD: no need to use GCC any more
+
+  [ Alexandr Lyapunov ]
+  * Fixed gh-1156 : Throw out-of-memory errror from upsert
+
+  [ Roman Tsisyk ]
+  * Disable error injections for box/upsert.test.lua for release builds
+  * Add proper box/upsert_errinj.result
+
+  [ Sulverus ]
+  * soft automatic schema reload in net.box
+  * netbox SPACE/INDEX replaced with VSPACE/VINDEX
+  * Review fixes for gh-1183-schema-reload
+
+  [ Roman Tsisyk ]
+  * Review fixes for gh-1183-schema-reload
+
+  [ Nick Zavaritsky ]
+  * Fix unintended global variable access
+
+  [ Alexandr Lyapunov ]
+  * fix gh-1181 Error message for upsert
+
+  [ bigbes ]
+  * Add _xc functions to xlog.h and make xlog api exception safe
+
+  [ Roman Tsisyk ]
+  * Review fixes for gh-1131-xlog-xc
+
+  [ Nick Zavaritsky ]
+  * Fix #1216: box_set_xxx() must not raise C++ exceptions
+  * Remove workaround - larger fiber stacks on OSX
+  * Fix #1090: language normalization in box.schema.func.create
+  * Fix #1240: attach a name to builtin Lua modules
+
+  [ Roman Tsisyk ]
+  * Update .result files after merging #1240
+  * Fix parallel build with make -jXX
+  * Refactor sysvinit/systemd configuration and fix tarantool-common package
+  * Fix a typo inside Lua script in RPM spec
+  * Fix CMake warning in extra/dist/
+  * Fix compilation with musl libc
+  * Fix compilation with -DBUILD_SHARED_LIBS=ON
+
+  [ Konstantin Osipov ]
+  * doc: remove a temporary file
+
+  [ Roman Tsisyk ]
+  * Update CMakeFiles to unify deb/rpm packaging
+  * Debian: enable armhf and arm64
+  * RPM: install documentation to appropriate directories
+  * RPM: disable hardened build to fix backtraces
+  * RPM: add a new version of spec after Fedora review
+  * Fix #1226: luaL_convertfield should ignore __serialize hook for ctypes
+
+  [ Nick Zavaritsky ]
+  * gh-1211: default mode 0777 for fio.open
+
+  [ Roman Tsisyk ]
+  * Fix rpm/tarantool.spec
+
+  [ Konstantin Osipov ]
+  * gh-1150: speed up relay by avoiding unnecessary xdir_scan().
+  * fiber_func returns int
+
+  [ Roman Tsisyk ]
+  * fiber_invoke returns int
+  * gh-1249: Fix test suite on musl libc
+
+  [ Sulverus ]
+  * gh-1275 bugfix + test
+  * localhost replace removed from app/net.box.test.lua
+
+  [ Nick Zavaritsky ]
+  * Clear diag, enforce cord->ready fiber policy
+  * Update tests to avoid dependency on table sort order
+
+  [ Alexandr Lyapunov ]
+  * Fixed gh-1154 Merge concepts of out-of-memory in index and tuple arenas
+  * Fixed gh-1145 Release allocated memory
+
+  [ GeorgyKirichenko ]
+  * Add setgroups call for daemonization. Issue #1263
+
+  [ Konstantin Osipov ]
+  * fiber: review fixes
+
+  [ ocelot-inc ]
+  * Fixes gh-902 Document snapshotting implementation in Data persistence chapter
+  * change notice re 1.6.6 snapshot change
+  * Fixes gh-960 Documentation: box.schema doesn't contain box.schema.func functions
+
+  [ Roman Tsisyk ]
+  * Update lib/msgpuck for #1221
+
+  [ Georgy.Kirichenko ]
+  * Add sign comparation check flag, issue #1221
+
+  [ Roman Tsisyk ]
+  * Review fixes for #1221 -Wsign-compare
+  * Review fixes for #1221 -Wsign-compare
+
+  [ GeorgyKirichenko ]
+  * Add cluster id. Issue #1117
+
+  [ Roman Tsisyk ]
+  * Fix #1188: Per-space sophia engine parameters
+  * Remove .swp file from test/box/
+
+  [ Dmitry E. Oboukhov ]
+  * Add debian temporary files to .gitignore.
+
+  [ Roman Tsisyk ]
+  * Change type of rows_per_wal to int64_t
+
+  [ Alexandr Lyapunov ]
+  * Simplified upsert exception behaviour and commented upsert execution
+
+  [ Sulverus ]
+  * Fix https://github.com/tarantool/build/issues/10
+  * rpm_bump target updated
+  * rpm spec centos 6 fix
+  * trivia/config.h tarantool version format fixed
+
+  [ Roman Tsisyk ]
+  * Remove hardcoded versions from CMakeLists.txt
+  * Fix out-of-source build with removed .git/ directory
+
+  [ Nick Zavaritsky ]
+  * Fix clang build
+
+  [ Roman Tsisyk ]
+  * Fix test/unit/bitset_basic.test
+  * Fix clang 3.7.1 build
+  * Fix #1280: Segmentation fault on space.select([])
+
+  [ GeorgyKirichenko ]
+  * Fix potentially resource leaks. Issue #1164
+
+  [ Roman Tsisyk ]
+  * Update test-run to use :grep_log()
+
+  [ Nick Zavaritsky ]
+  * Fix #1238: log error if lua fiber terminates
+
+  [ Roman Tsisyk ]
+  * Merge #1238 test case to box/fiber.lua
+  * gh-1238: add a test case to unit test
+  * Remove rpm/fedora.spec (was merged to rpm/tarantool.spec)
+
+  [ Veniamin Gvozdikov ]
+  * Fix installation files on FreeBSD
+  * Upgrade FreeBSD port files
+
+  [ Roman Tsisyk ]
+  * Debian: allow to systemd alongside sysvinit
+
+  [ ocelot-inc ]
+  * Fixes gh-1199 Atomic transactions
+
+  [ Roman Tsisyk ]
+  * Fix #1042: bad error message for _vspace, _vindex, _vuser, etc.
+  * gh-1188: pass custom index options to _index:insert()
+  * Fix errcode.h numbering caused by a bad merge
+
+  [ GeorgyKirichenko ]
+  * Fix compilation with Werror-sign for gcc-4.7. Issue #1283
+  * Fix tonumber64 data conversion. Issue #1279
+  * Fix #1266: if_exists and if_not_exists
+
+  [ Alexandr Lyapunov ]
+  * Fix #1287: bps_tree supressed compile warnings for new gcc
+
+  [ Roman Tsisyk ]
+  * Review fixes for #1279: update a comment
+  * box/fiber.test.lua: stop flooding the logs during busy-wait
+  * Fix #1052: add comments to tarantoolctl configuration
+  * Fix #1264: multi-instance management using systemd
+  * gh-1262: document coredumpctl(1) usage
+  * Fix warnings and errors on GCC 5.3.1
+  * Set value of too_long_threshold in box_init()
+
+  [ Nick Zavaritsky ]
+  * put lua scripts used by replication-py into the same dir
+  * Fix #1075: box.cfg blocks until rw mode is activated, 1.6
+
+  [ Roman Tsisyk ]
+  * Review fixes for #1075: box.cfg blocks until rw is activated
+  * Set value of too_long_threshold in box_init()
+
+  [ Konstantin Osipov ]
+  * Update the description of the greeting protocol packet
+  * Fix typos.
+
+  [ lenkis ]
+  * Fixes gh-870: slide 10 in tutorial is obsolete
+
+  [ Nick Zavaritsky ]
+  * Trim OpenMP thread pool more often
+
+  [ Roman Tsisyk ]
+  * Fix #1290: allow to use system libmsgpuck
+  * CMake: use cache properly and don't print useless messages
+  * Update branch name in Travis CI badge
+  * Update test-run to fix #1227
+  * Fix replication/prune.test.lua
+
+  [ bigbes ]
+  * little refactoring in src/lua/log.lua
+
+  [ Nick Zavaritsky ]
+  * Fix #1224: allow build to proceed if pthread_setname_np not found
+
+  [ bigbes ]
+  * Errno module refactoring
+  * Fix documentation markup
+  * Update homebrew building instructions
+
+  [ Gallagher Pryor ]
+  * cmake: fix to reporting mising pkgs
+
+  [ ocelot-inc ]
+  * adjusting due to recent changes
+
+  [ Roman Tsisyk ]
+  * Fix compilation with GCC 6.0.0
+  * Remove hard-coded paths from tarantoolctl
+  * Fix #883: incorrect error handling in lyaml
+  * Always generate tarantoolctl because it is used by test-run
+
+  [ Dmitry Simonenko ]
+  * update sophia submodule for 1.6
+
+  [ Roman Tsisyk ]
+  * Remove Tarantool Meetup banner from web-site
+
+  [ bigbes ]
+  * Update test-run
+
+  [ Roman Tsisyk ]
+  * Replace tarantool.org/dist/master with /dist/1.6/
+  * RPM: rely on %cmake for all dirs except /etc and /var
+  * Debian: enable multiarch
+
+  [ GeorgyKirichenko ]
+  * Fix #1094: snapshot abort when libev can't init event pipe.
+
+  [ Roman Tsisyk ]
+  * gh-1094: extract a test case from box/snapshot_daemon.test.lua
+
+  [ Georgy Kirichenko ]
+  * Fix lua cpath. Issue #1085
+
+  [ Roman Tsisyk ]
+  * Review fixes for #1085
+  * Fix #519: convert libyaml to a submodule
+  * Fix #1205: box.schema.user.info fails
+
+  [ GeorgyKirichenko ]
+  * Randomize snapshot start time. Fixed #732
+
+  [ Roman Tsisyk ]
+  * Fix -Wsign-compare in src/box/alter.cc
+  * RPM: obsolete tarantool-common package
+  * Use the full path to tarantoolctl in tarantool@.service
+  * Fix GNU readline detection for OS X
+
+  [ GeorgyKirichenko ]
+  * Fix test for travis. Fixed #1094
+
+  [ Roman Tsisyk ]
+  * Refactor app/snapshot.test.lua
+  * gh-1094: fix evpipe_alloc() logic
+
+  [ ocelot-inc ]
+  * alignment of table in packet example
+
+  [ Roman Tsisyk ]
+  * gh-1262: Allow to disable backtraces entirely
+  * Fix #ifdef in libbit
+  * Fix buffer overflow in ./test/unit/bit.c
+
+  [ GeorgyKirichenko ]
+  * If libev uses eventfd instead of pipe then evpipe[0] can be -1. Check evpipe[1] is the right way. Issue #1094.
+
+  [ Roman Tsisyk ]
+  * tarantoolctl: disable user-mode for root
+  * Use chmod 0750 for data, pid and logs directories
+  * Fix #1293: Permission denied on tarantoolctl enter
+
+  [ GeorgyKirichenko ]
+  * If libev uses eventfd instead of pipe then evpipe[0] can be -1. Check evpipe[1] is the right way. Issue #1094.
+
+  [ Roman Tsisyk ]
+  * Debian: bring back setgid bit on /var/log/tarantool
+  * Extract TAP-based tests for box from app/ to box-tap/
+  * Rename test/app/ to app-tap/
+  * Extract tests for application server from box/ to app/
+  * Merge test/big/ into test/box/
+
+  [ ocelot-inc ]
+  * fixed tables
+
+  [ Roman Tsisyk ]
+  * Update src/lib/msgpuck to fix GCC 6.0
+  * Fix #1308: access_sysview.test.lua fails
+
+  [ ocelot-inc ]
+  * Fixes gh-1243 Clarify database operations description to take into account multi-statement transactions
+
+  [ Roman Tsisyk ]
+  * Switch to tarantool/libyaml
+  * Ignore dirty files in submodules
+
+  [ lenkis ]
+  * Fixes #1286: add to doc how to start/stop Tarantool app in different OSs
+
+  [ Roman Tsisyk ]
+  * CMake: add `make distclean`
+  * CMake: automatically update submodules
+  * CMake: fix order of ENABLE_BACKTRACE and compiler.cmake
+
+  [ lenkis ]
+  * Removed a duplicate line from job description for Lead Site Reliability Engineer
+
+  [ Alexandr Lyapunov ]
+  * fixed gh-1320 long run test hangs on finalizers.test
+
+  [ Konstantin Osipov ]
+  * gh-1311: increase BOX_INDEX_MAX to 128
+
+  [ bigbes ]
+  * [site] Add qiwi logo to main page
+
+  [ lenkis ]
+  * Removed a duplicate line from job description for Lead Site Reliability Engineer
+
+  [ bigbes ]
+  * [documentation] CR for pgulutzan patches
+  * [site] Add wallarm logo to main page
+
+  [ Roman Tsisyk ]
+  * Fix module_api test
+  * Drop python-daemon dependency
+  * RPM: sync with Fedora spec, enable tests
+  * Fix .gitignore for `tar --exclude-vcs-ignores`
+
+  [ Alexandr Lyapunov ]
+  * fixed gh-1323 : Index:count works too long
+
+  [ Roman Tsisyk ]
+  * Update the list of supported OS for tarantool/build
+  * Disable tests for CentOS 6
+
+  [ Konstantin Osipov ]
+  * gh-1298: (performance regression in small allocator)
+
+  [ ocelot-inc ]
+  * Removed section 1.2 Conventions
+  * due to issue#1311 Increase BOX_INDEX_MAX to 128
+  * Fixes gh-1328 space_object:get() not equivalent to space_object:select()[1]
+  * tdb
+
+  [ Roman Tsisyk ]
+  * Update installation instructions on web-site
+  * Fix #1324: Add instructions for Amazon Linux to Download page
+  * Fix sudo usage in installation instructions on web-site
+  * gh-1324: improve installation instructions for RHEL/CentOS/Amazon
+
+  [ Dmitry Simonenko ]
+  * Fix #1329: do not start sophia thread pool, unless it is used
+
+  [ Roman Tsisyk ]
+  * Remove luaL_field variable from luamp_encode_r stack
+  * Fix #291: IPROTO CALL returns wrong tuple
+  * Clean up the source tarball
+  * Fix a typo in cmake/rpm.cmake
+
+  [ Alexandr Lyapunov ]
+  * Changed default slab_alloc_minimal in example.lua from 64 to 16
+
+  [ Dmitry Simonenko ]
+  * sophia: update submodule
+
+  [ Roman Tsisyk ]
+  * Fix #1330: tarantoolctl uses a wrong instance file
+  * Debian: clean up debian/ directory, remove ugly hacks
+  * Debian, RPM: tarantool package should own module directories
+  * Debian: explicitly disable systemd
+  * Remove README.systemd.md
+  * Remove README.CentOS - completely outdated
+
+  [ ocelot-inc ]
+  * Fixes gh-1340 Document logging to syslog
+
+  [ Dmitry Simonenko ]
+  * fix #1337: fiber stack overflow with sophia usage on ARM
+
+  [ ocelot-inc ]
+  * Fixes gh-1192 Document server start (memtx engine) in a greater detail.
+  * added one sentence re facility in cfg-logging.rst
+
+  [ Konstantin Osipov ]
+  * A fix for gh-1342 "Grant error message is misleading"
+
+  [ Roman Tsisyk ]
+  * Update download.html - switch to new cloud repositories
+
+  [ Konstantin Osipov ]
+  * dev guide: upgrade broken urls
+
+  [ Roman Tsisyk ]
+  * Fix #1345: Segmentation fault with small slab_alloc_arena
+
+  [ lenkis ]
+  * Update installation instructions in Getting Started guide
+
+  [ GeorgyKirichenko ]
+  * Start evpipe watcher on init if evpipe is preallocated. Issue #1094
+
+  [ Dmitry Simonenko ]
+  * sophia: fix #1346: better error message for incompatible versions
+
+  [ Roman Tsisyk ]
+  * Fix -Wsign-compare warning on gcc 4.9 i386
+  * Fix box/tuple.test on i386
+
+  [ Dmitry Simonenko ]
+  * gh-1318-sophia-cursor: New sophia cursor implementation
+  * gh-1318-sophia-cursor: make fix for #1104
+
+  [ Alexandr Lyapunov ]
+  * Fixed gh-1353 rtee_multidim test fails on 32bit system
+
+  [ Dmitry Simonenko ]
+  * gh-1318-sophia-cursor: switch to coeio for async read calls
+
+  [ bigbes ]
+  * Update module header to search lua.h from local directory
+  * Update example.lua
+
+  [ Sulverus ]
+  * Test run updated, inspector test cleanup fixed
+
+  [ bigbes ]
+  * Fix for instances.available on Mac OS X
+  * Fix TOC problem (still there's a bug sphinx-doc/sphinx#2363)
+  * Fix all tarantool/tarantool master branch to 1.6
+
+  [ GeorgyKirichenko ]
+  * Rollback all failed requests before processing any new one. Issue #1344
+
+  [ Dmitry Simonenko ]
+  * gh-1356-sophia-cache-read: read cache first, then yield for disk
+
+  [ Roman Tsisyk ]
+  * Remove unused sophia_poll()
+  * Fix #246: read-only mode
+
+  [ bigbes ]
+  * Add 1.6.8 release to site
+
+  [ Dmitry Simonenko ]
+  * gh-1358-sophia-cord-pool: use tarantool thread pool
+  * sophia: update submodule
+
+  [ Roman Tsisyk ]
+  * Fix missing clock_gettime() on OS X
+
+  [ Konstantin Osipov ]
+
+ -- Konstantin Osipov <autobuilder@4ccfeb3007aa>  Thu, 10 Mar 2016 13:06:30 +0300
+
 tarantool (1.6.7.588.g76bbd9c-1) unstable; urgency=medium
 
   * Fix `libiberty | bintuils-dev, binutils-dev` B-D
